@@ -176,18 +176,18 @@ jobs:
       - name: Verify and package
         run: |
           APP=dist/Aletheia.app
-          test -x "$APP/Contents/MacOS/aletheia"
+          test -x "$APP/Contents/MacOS/Aletheia"
           test -x "$APP/Contents/MacOS/aletheia_cli"
           test -f "$APP/Contents/Resources/u2netp.onnx"
           test -f "$APP/Contents/Frameworks/libonnxruntime.dylib"
-          echo "=== Dependencias de aletheia ==="
-          otool -L "$APP/Contents/MacOS/aletheia"
+          echo "=== Dependencias de Aletheia ==="
+          otool -L "$APP/Contents/MacOS/Aletheia"
           echo "=== Dependencias de aletheia_cli ==="
           otool -L "$APP/Contents/MacOS/aletheia_cli"
-          otool -L "$APP/Contents/MacOS/aletheia" | grep -q onnxruntime
+          otool -L "$APP/Contents/MacOS/Aletheia" | grep -q onnxruntime
           otool -L "$APP/Contents/MacOS/aletheia_cli" | grep -q onnxruntime
           otool -l "$APP/Contents/MacOS/aletheia_cli" | grep -q '@executable_path/../Frameworks'
-          ! otool -L "$APP/Contents/MacOS/aletheia" | grep -q "$QT_DIR"
+          ! otool -L "$APP/Contents/MacOS/Aletheia" | grep -q "$QT_DIR"
           ! otool -L "$APP/Contents/MacOS/aletheia_cli" | grep -q "$QT_DIR"
           "$APP/Contents/MacOS/aletheia_cli" --version
           codesign --force --deep --sign - "$APP"

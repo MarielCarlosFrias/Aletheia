@@ -53,6 +53,7 @@
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QTabWidget>
+#include <QStackedWidget>
 #include <QtConcurrent/QtConcurrent>
 #include <QWheelEvent>
 #include <algorithm>
@@ -109,6 +110,11 @@ ProcessingOptions MainWindow::currentProcessingOptions() const
 
 MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     : QMainWindow(parent),
+      workspaceStack_(new QStackedWidget),
+      dropZoneWidget_(nullptr),
+      previewContainer_(nullptr),
+      imageStatusLabel_(new QLabel(TR("Nenhuma imagem selecionada",
+                                      "No image selected"))),
       originalLabel_(new QLabel(TR("Nenhuma imagem", "No image"))),
       imageNameLabel_(new QLabel(TR("Nenhuma imagem selecionada",
                                     "No image selected"))),
@@ -341,11 +347,19 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     previewSplitter->addWidget(resultPanel);
     previewSplitter->setStretchFactor(0, 1);
     previewSplitter->setStretchFactor(1, 1);
+    previewContainer_ = previewSplitter;
+
+    dropZoneWidget_ = createEmptyStateWidget();
+
+    workspaceStack_->setObjectName("workspaceStack");
+    workspaceStack_->addWidget(dropZoneWidget_);
+    workspaceStack_->addWidget(previewContainer_);
 
     auto* workspace = new QFrame;
     workspace->setObjectName("workspace");
     auto* workspaceLayout = new QVBoxLayout(workspace);
     workspaceLayout->setContentsMargins(0, 0, 0, 0);
+    workspaceLayout->setSpacing(6);
     auto* workspaceToolbar = new QHBoxLayout;
     workspaceToolbar->setContentsMargins(0, 0, 0, 0);
     imageNameLabel_->setObjectName("imageName");
@@ -394,7 +408,25 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     workspaceToolbar->addWidget(zoomInButton);
     workspaceToolbar->addWidget(fitButton);
     workspaceLayout->addLayout(workspaceToolbar);
-    workspaceLayout->addWidget(previewSplitter, 1);
+    workspaceLayout->addWidget(workspaceStack_, 1);
+
+    auto* editorFooter = new QFrame;
+    editorFooter->setObjectName("editorFooter");
+    auto* editorFooterLayout = new QHBoxLayout(editorFooter);
+    editorFooterLayout->setContentsMargins(14, 8, 14, 8);
+    editorFooterLayout->setSpacing(10);
+    imageStatusLabel_->setObjectName("imageStatusLabel");
+    editorFooterLayout->addWidget(imageStatusLabel_);
+    editorFooterLayout->addStretch(1);
+    btnCopy_->setObjectName("copyButton");
+    btnCopy_->setToolTip(
+        TR("Copiar resultado para a área de transferência (Ctrl+C ou Ctrl+Shift+C)",
+           "Copy result to clipboard (Ctrl+C or Ctrl+Shift+C)"));
+    btnCopy_->setText(TR("Copiar", "Copy"));
+    editorFooterLayout->addWidget(btnCopy_);
+    btnSave_->setObjectName("saveButton");
+    editorFooterLayout->addWidget(btnSave_);
+    workspaceLayout->addWidget(editorFooter);
 
     auto* inspector = new QFrame;
     inspector->setObjectName("inspector");
@@ -523,7 +555,7 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     inspectorLayout->addWidget(secOutput);
 
     auto* secManual = new CollapsibleSection(
-        TR("Correção manual & Ações", "Manual touch-up & Actions"),
+        TR("Ações e Retoque", "Actions and Retouch"),
         false, this);
     auto* secManualLayout = secManual->contentLayout();
     auto* brushForm = new QFormLayout;
@@ -564,11 +596,11 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     contentSplitter->addWidget(inspectorScroll);
     contentSplitter->setStretchFactor(0, 1);
 
-    // Abas principais: Editor (area de trabalho) e Modelos (catalogo
-    // com download). O cabecalho, o lote e o log ficam sempre visiveis.
+    // Abas principais: Editor, Lote, Modelos e Ajuda.
     mainTabs_ = new QTabWidget;
     mainTabs_->setObjectName("mainTabs");
     mainTabs_->addTab(contentSplitter, TR("Editor", "Editor"));
+    mainTabs_->addTab(createBatchTab(), TR("Lote", "Batch"));
     modelManager_ = new ModelManagerWidget(this);
     mainTabs_->addTab(modelManager_, TR("Modelos", "Models"));
     mainTabs_->addTab(new HelpWidget(this), TR("Ajuda", "Help"));
@@ -577,60 +609,12 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
         populateModelCombo();
     });
 
-    auto* batchBar = new QFrame;
-    batchBar->setObjectName("batchBar");
-    auto* batchLayout = new QHBoxLayout(batchBar);
-    batchLayout->setContentsMargins(16, 12, 16, 12);
-    batchLayout->setSpacing(10);
-    auto* batchTitle = new QLabel(TR("Processamento em lote",
-                                     "Batch processing"));
-    batchTitle->setObjectName("batchTitle");
-    batchLayout->addWidget(batchTitle);
-    batchLayout->addSpacing(8);
-    folderEdit_->setPlaceholderText(
-        TR("Nenhuma pasta selecionada", "No folder selected"));
-    folderEdit_->setMinimumWidth(190);
-    batchLayout->addWidget(folderEdit_, 1);
-    btnSelectFolder_->setText(TR("Escolher pasta", "Choose folder"));
-    batchLayout->addWidget(btnSelectFolder_);
-    outputDirEdit_->setMinimumWidth(120);
-    outputDirEdit_->setMaximumWidth(180);
-    batchLayout->addWidget(outputDirEdit_, 1);
-    btnSelectOutput_->setText(TR("Salvar em…", "Save to…"));
-    batchLayout->addWidget(btnSelectOutput_);
-    batchLayout->addWidget(btnProcessBatch_);
-    // Grupo da imagem separado do lote por espaco elastico: as duas
-    // funcoes nao se misturam visualmente numa barra cheia.
-    batchLayout->addStretch(1);
-    btnCopy_->setObjectName("copyButton");
-    btnCopy_->setToolTip(
-        TR("Copiar resultado para a area de transferencia (Ctrl+Shift+C)",
-           "Copy result to the clipboard (Ctrl+Shift+C)"));
-    btnCopy_->setText(TR("Copiar", "Copy"));
-    batchLayout->addWidget(btnCopy_);
-    btnSave_->setObjectName("saveButton");
-    batchLayout->addWidget(btnSave_);
-
     mainLayout_ = new QVBoxLayout();
     mainLayout_->setContentsMargins(16, 0, 16, 16);
-    mainLayout_->setSpacing(16);
+    mainLayout_->setSpacing(10);
     mainLayout_->addWidget(header);
-    mainLayout_->addWidget(mainTabs_, 1);
-    mainLayout_->addWidget(batchBar);
     mainLayout_->addWidget(progressBar_);
-    auto* btnToggleLog = new QPushButton(TR("Mostrar log \u25be",
-                                            "Show log \u25be"));
-    btnToggleLog->setObjectName("logToggle");
-    mainLayout_->addWidget(btnToggleLog);
-    mainLayout_->addWidget(logEdit_);
-
-    connect(btnToggleLog, &QPushButton::clicked, this, [this, btnToggleLog]() {
-        bool nowVisible = !logEdit_->isVisible();
-        logEdit_->setVisible(nowVisible);
-        btnToggleLog->setText(nowVisible
-            ? TR("Esconder log \u25b4", "Hide log \u25b4")
-            : TR("Mostrar log \u25be", "Show log \u25be"));
-    });
+    mainLayout_->addWidget(mainTabs_, 1);
     connect(zoomOutButton, &QPushButton::clicked, this, [this]() {
         setPreviewZoom(previewZoomPercent_ - 25);
     });
@@ -650,7 +634,7 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     // AppTheme::apply() em main.cpp; o botao de tema alterna
     // em tempo de execucao e persiste em QSettings.
 
-    setWindowTitle("Aletheia " BG_REMOVER_VERSION);
+    setWindowTitle("Aletheia " ALETHEIA_VERSION);
     setMinimumSize(980, 680);
     resize(1320, 860);
 
@@ -811,8 +795,182 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
         }
     }
 
+    updateWorkspaceStack();
+
     // Verificacao de nova versao (assincrona, silenciosa em falha).
     checkForUpdate();
+}
+
+QWidget* MainWindow::createEmptyStateWidget()
+{
+    auto* container = new QWidget;
+    auto* outerLayout = new QVBoxLayout(container);
+    outerLayout->setContentsMargins(24, 24, 24, 24);
+    outerLayout->setAlignment(Qt::AlignCenter);
+
+    auto* dropCard = new QFrame;
+    dropCard->setObjectName("dropZone");
+    dropCard->setFrameShape(QFrame::StyledPanel);
+    dropCard->setMinimumSize(440, 260);
+    dropCard->setMaximumSize(640, 360);
+
+    auto* cardLayout = new QVBoxLayout(dropCard);
+    cardLayout->setContentsMargins(36, 32, 36, 32);
+    cardLayout->setSpacing(14);
+    cardLayout->setAlignment(Qt::AlignCenter);
+
+    auto* iconLabel = new QLabel(QString::fromUtf8("\U0001F5BC\uFE0F"));
+    iconLabel->setObjectName("dropZoneIcon");
+    iconLabel->setAlignment(Qt::AlignCenter);
+    QFont iconFont = iconLabel->font();
+    iconFont.setPointSize(38);
+    iconLabel->setFont(iconFont);
+
+    auto* titleLabel = new QLabel(TR("Arraste e solte uma imagem aqui",
+                                     "Drag and drop an image here"));
+    titleLabel->setObjectName("dropZoneTitle");
+    titleLabel->setAlignment(Qt::AlignCenter);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(14);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+
+    auto* subLabel = new QLabel(TR("Formatos suportados: PNG, JPG, WebP, BMP\nou use os botões rápidos abaixo",
+                                   "Supported formats: PNG, JPG, WebP, BMP\nor use the quick buttons below"));
+    subLabel->setObjectName("dropZoneSubtitle");
+    subLabel->setAlignment(Qt::AlignCenter);
+    subLabel->setWordWrap(true);
+    QFont subFont = subLabel->font();
+    subFont.setPointSize(10);
+    subLabel->setFont(subFont);
+
+    auto* btnRow = new QHBoxLayout;
+    btnRow->setSpacing(12);
+    btnRow->setAlignment(Qt::AlignCenter);
+
+    auto* btnPick = new QPushButton(TR("Abrir imagem (Ctrl+O)", "Open image (Ctrl+O)"));
+    btnPick->setObjectName("dropZonePickBtn");
+    btnPick->setCursor(Qt::PointingHandCursor);
+    connect(btnPick, &QPushButton::clicked, this, &MainWindow::openImage);
+
+    auto* btnPaste = new QPushButton(TR("Colar da área de transferência (Ctrl+V)", "Paste from clipboard (Ctrl+V)"));
+    btnPaste->setObjectName("dropZonePasteBtn");
+    btnPaste->setCursor(Qt::PointingHandCursor);
+    connect(btnPaste, &QPushButton::clicked, this, &MainWindow::pasteImageFromClipboard);
+
+    btnRow->addWidget(btnPick);
+    btnRow->addWidget(btnPaste);
+
+    cardLayout->addWidget(iconLabel);
+    cardLayout->addWidget(titleLabel);
+    cardLayout->addWidget(subLabel);
+    cardLayout->addSpacing(6);
+    cardLayout->addLayout(btnRow);
+
+    outerLayout->addWidget(dropCard, 0, Qt::AlignCenter);
+    return container;
+}
+
+QWidget* MainWindow::createBatchTab()
+{
+    auto* tab = new QWidget;
+    auto* layout = new QVBoxLayout(tab);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(16);
+
+    auto* headerBox = new QVBoxLayout;
+    headerBox->setSpacing(4);
+    auto* title = new QLabel(TR("Processamento em Lote", "Batch Processing"));
+    title->setObjectName("batchPageTitle");
+    auto* desc = new QLabel(TR(
+        "Processe pastas inteiras de imagens sem bloquear o computador. As imagens recortadas são salvas automaticamente.",
+        "Process entire folders of images without freezing your computer. Cutout images are saved automatically."));
+    desc->setObjectName("batchPageSubtitle");
+    desc->setWordWrap(true);
+    headerBox->addWidget(title);
+    headerBox->addWidget(desc);
+    layout->addLayout(headerBox);
+
+    auto* foldersCard = new QFrame;
+    foldersCard->setObjectName("batchCard");
+    auto* foldersLayout = new QFormLayout(foldersCard);
+    foldersLayout->setContentsMargins(18, 16, 18, 16);
+    foldersLayout->setSpacing(12);
+    foldersLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+
+    auto* inRow = new QHBoxLayout;
+    folderEdit_->setObjectName("batchInput");
+    folderEdit_->setPlaceholderText(
+        TR("Selecione ou arraste uma pasta com imagens...", "Select or drop a folder with images..."));
+    inRow->addWidget(folderEdit_, 1);
+    btnSelectFolder_->setText(TR("Escolher pasta...", "Choose folder..."));
+    inRow->addWidget(btnSelectFolder_);
+    foldersLayout->addRow(TR("Pasta de origem:", "Source folder:"), inRow);
+
+    auto* outRow = new QHBoxLayout;
+    outputDirEdit_->setObjectName("batchOutput");
+    outRow->addWidget(outputDirEdit_, 1);
+    btnSelectOutput_->setText(TR("Salvar em...", "Save to..."));
+    outRow->addWidget(btnSelectOutput_);
+    foldersLayout->addRow(TR("Pasta de destino:", "Destination folder:"), outRow);
+
+    layout->addWidget(foldersCard);
+
+    auto* actionCard = new QFrame;
+    actionCard->setObjectName("batchCard");
+    auto* actionLayout = new QVBoxLayout(actionCard);
+    actionLayout->setContentsMargins(18, 16, 18, 16);
+    actionLayout->setSpacing(12);
+
+    auto* actionRow = new QHBoxLayout;
+    btnProcessBatch_->setObjectName("processBatchButton");
+    btnProcessBatch_->setMinimumHeight(38);
+    actionRow->addWidget(btnProcessBatch_, 0);
+    actionRow->addStretch();
+    actionLayout->addLayout(actionRow);
+
+    layout->addWidget(actionCard);
+
+    auto* logHeaderRow = new QHBoxLayout;
+    auto* btnToggleBatchLog = new QPushButton(TR("Mostrar log de processamento \u25be",
+                                                 "Show processing log \u25be"));
+    btnToggleBatchLog->setObjectName("batchLogToggle");
+    logHeaderRow->addWidget(btnToggleBatchLog);
+    logHeaderRow->addStretch();
+    layout->addLayout(logHeaderRow);
+
+    logEdit_->setObjectName("logEdit");
+    layout->addWidget(logEdit_, 1);
+
+    connect(btnToggleBatchLog, &QPushButton::clicked, this, [this, btnToggleBatchLog]() {
+        bool nowVisible = !logEdit_->isVisible();
+        logEdit_->setVisible(nowVisible);
+        btnToggleBatchLog->setText(nowVisible
+            ? TR("Esconder log de processamento \u25b4", "Hide processing log \u25b4")
+            : TR("Mostrar log de processamento \u25be", "Show processing log \u25be"));
+    });
+
+    layout->addStretch();
+    return tab;
+}
+
+void MainWindow::updateWorkspaceStack()
+{
+    if (!workspaceStack_) return;
+    const bool hasImage = !originalImage_.isNull();
+    workspaceStack_->setCurrentIndex(hasImage ? 1 : 0);
+    if (imageStatusLabel_) {
+        if (hasImage) {
+            imageStatusLabel_->setText(
+                QString("%1 \u00d7 %2 px \u2022 Zoom %3%")
+                    .arg(originalImage_.width())
+                    .arg(originalImage_.height())
+                    .arg(previewZoomPercent_));
+        } else {
+            imageStatusLabel_->setText(
+                TR("Nenhuma imagem selecionada", "No image selected"));
+        }
+    }
 }
 
 void MainWindow::editingDone()
@@ -835,6 +993,7 @@ void MainWindow::setPreviewZoom(int percent)
     previewZoomPercent_ = qBound(50, percent, 400);
     zoomLabel_->setText(QString::number(previewZoomPercent_) + "%");
     updatePreviewZoom();
+    updateWorkspaceStack();
 }
 
 void MainWindow::zoomAt(int percent, const QPoint& globalPos)
@@ -1266,7 +1425,7 @@ void MainWindow::checkForUpdate()
         "/releases/latest")));
     request.setRawHeader("Accept", "application/vnd.github+json");
     request.setRawHeader("User-Agent",
-                         QByteArray("aletheia/") + BG_REMOVER_VERSION);
+                         QByteArray("aletheia/") + ALETHEIA_VERSION);
     request.setTransferTimeout(5000);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
@@ -1296,7 +1455,7 @@ void MainWindow::onUpdateCheckFinished()
     // Comparacao semantica simples (major.minor.patch), ignorando o "v".
     const QString remote = latestRemoteVersion_.startsWith('v')
         ? latestRemoteVersion_.mid(1) : latestRemoteVersion_;
-    const QString local = QStringLiteral(BG_REMOVER_VERSION);
+    const QString local = QStringLiteral(ALETHEIA_VERSION);
     auto parse = [](const QString& s) {
         const QStringList parts = s.split('.');
         QList<int> nums;
@@ -1652,6 +1811,7 @@ void MainWindow::dropEvent(QDropEvent* event)
 
     if (!folder.isEmpty()) {
         folderEdit_->setText(folder);
+        mainTabs_->setCurrentIndex(1);
         logEdit_->appendPlainText(
             "[INFO] " + TR("Pasta de lote: ", "Batch folder: ") + folder);
         event->acceptProposedAction();
@@ -1884,6 +2044,9 @@ void MainWindow::finishBatch()
 
 void MainWindow::setOriginal(const QImage& img) {
     Q_UNUSED(img)
+    // Troca primeiro para a area de edicao: o preview so tem tamanho
+    // util depois de o stack mostrar a pagina do editor.
+    updateWorkspaceStack();
     updatePreviewZoom();
 }
 

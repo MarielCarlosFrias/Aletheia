@@ -10,8 +10,8 @@
 #include "modelpathresolver.h"
 
 namespace {
-#ifdef BG_REMOVER_VERSION
-const QString kVersion = QStringLiteral(BG_REMOVER_VERSION);
+#ifdef ALETHEIA_VERSION
+const QString kVersion = QStringLiteral(ALETHEIA_VERSION);
 #else
 const QString kVersion = QStringLiteral("1.0.0");
 #endif

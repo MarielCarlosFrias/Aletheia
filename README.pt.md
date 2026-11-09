@@ -15,7 +15,7 @@ O Aletheia é um aplicativo desktop nativo em C++17 e Qt 6 que executa redes neu
 
 Sem envio de fotos para a nuvem, sem assinaturas ou APIs pagas, sem necessidade de cadastro.
 
-![Editor do Aletheia: original à esquerda, resultado com fundo removido à direita](docs/images/bg-remover-editor.png)
+![Editor do Aletheia: original à esquerda, resultado com fundo removido à direita](docs/images/aletheia-editor.png)
 
 ---
 
@@ -41,7 +41,7 @@ Sem envio de fotos para a nuvem, sem assinaturas ou APIs pagas, sem necessidade 
 
 Binários prontos para uso são gerados e testados automaticamente em cada versão:
 
-👉 [**Baixar a Versão Mais Recente (v1.2.0)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
+👉 [**Baixar a Versão Mais Recente (v1.2.1)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
 
 | Plataforma | Pacote | Descrição |
 | :--- | :--- | :--- |
@@ -86,17 +86,19 @@ Ideal para gráficos 2D, sprites de jogos, telas verdes ou ilustrações com fun
 ### Aba Modelos
 Baixe, verifique ou apague modelos com um clique. Os arquivos são armazenados localmente (`~/.local/share/aletheia/models` no Linux, `%APPDATA%/aletheia/models` no Windows) e ficam imediatamente disponíveis tanto na interface gráfica quanto no CLI (com suporte retrocompatível aos caminhos antigos).
 
-![Aba Modelos](docs/images/bg-remover-modelos.png)
+![Aba Modelos](docs/images/aletheia-models.png)
 
 ### Processamento em Lote
 Indique a pasta de entrada e a pasta de saída para processar centenas de imagens em fila.
 - Operação assíncrona em segundo plano com barra de progresso e botão **Cancelar**.
 - Nomenclatura sem colisões: arquivos existentes nunca são sobrescritos (sufixos automáticos `_rembg_1.png`).
 
+![Aba de Processamento em Lote](docs/images/aletheia-batch.png)
+
 ### Ajuda e Atalhos Integrados
 Pressione `F1` ou abra a aba **Ajuda** para acessar o manual rápido, explicação de ferramentas e tabela de atalhos.
 
-![Aba Ajuda](docs/images/bg-remover-ajuda.png)
+![Aba Ajuda](docs/images/aletheia-help.png)
 
 ---
 
@@ -171,6 +173,9 @@ cmake --build build --parallel
 open build/Aletheia.app
 ```
 
+> As opções `BG_REMOVER_*` mantêm o prefixo antigo para não quebrar scripts
+> de compilação existentes.
+
 ---
 
 ## 📁 Estrutura do Repositório
@@ -209,6 +214,8 @@ aletheia/
 │   └── test_gui.cpp                 # Teste de fumo da interface offscreen
 ├── assets/                          # Ficheiros de integração com o sistema
 │   ├── aletheia.svg                 # Ícone vetorial da aplicação
+│   ├── aletheia.png                 # Ícone raster para janelas/taskbar
+│   ├── aletheia.icns                # Ícone do bundle macOS
 │   ├── aletheia.desktop             # Atalho de lançador Linux
 │   ├── aletheia_cli.1               # Manual UNIX (man page)
 │   └── io.github.MarielCarlosFrias.Aletheia.metainfo.xml # Metadados AppStream

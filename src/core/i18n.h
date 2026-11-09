@@ -8,7 +8,8 @@
 
 // Internacionalizacao leve, sem ferramentas externas: cada chamada
 // traz o texto em PT-BR e em EN. O idioma ativo vem, nesta ordem, de
-//   1. variavel de ambiente BG_REMOVER_LANG=pt|en (tests/CI)
+//   1. variavel de ambiente ALETHEIA_LANG=pt|en (BG_REMOVER_LANG ainda
+//      funciona por compatibilidade)
 //   2. QSettings (seletor de idioma na interface)
 //   3. localidade do sistema (portugues -> PT-BR, senao EN)
 namespace I18n {

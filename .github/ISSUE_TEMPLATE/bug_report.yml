@@ -14,7 +14,7 @@ body:
     attributes:
       label: Versão do Aletheia
       description: Aparece no título da janela, em `--version` ou na release.
-      placeholder: "1.1.0"
+      placeholder: "1.2.1"
     validations:
       required: true
   - type: dropdown

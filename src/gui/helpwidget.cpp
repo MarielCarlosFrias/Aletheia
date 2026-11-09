@@ -24,8 +24,8 @@ HelpWidget::HelpWidget(QWidget* parent)
     setObjectName("helpView");
     setFrameShape(QFrame::NoFrame);
 
-#ifdef BG_REMOVER_VERSION
-    const QString version = BG_REMOVER_VERSION;
+#ifdef ALETHEIA_VERSION
+    const QString version = ALETHEIA_VERSION;
 #else
     const QString version = QStringLiteral("1.0.0");
 #endif
@@ -46,8 +46,8 @@ bool HelpWidget::event(QEvent* event)
 
 void HelpWidget::rebuildHtml()
 {
-#ifdef BG_REMOVER_VERSION
-    const QString version = BG_REMOVER_VERSION;
+#ifdef ALETHEIA_VERSION
+    const QString version = ALETHEIA_VERSION;
 #else
     const QString version = QStringLiteral("1.0.0");
 #endif

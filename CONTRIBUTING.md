@@ -37,6 +37,9 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
+As opções `BG_REMOVER_*` mantêm o prefixo antigo por compatibilidade com
+scripts existentes.
+
 Os testes de inferência e os testes GUI completos precisam de `u2netp.onnx` na
 raiz do projeto:
 
@@ -50,8 +53,8 @@ valida apenas a construção da interface e a recuperação de erros.
 Para os testes GUI em modo headless:
 
 ```bash
-QT_QPA_PLATFORM=offscreen BG_REMOVER_LANG=pt ./build/test_gui ./u2netp.onnx
-QT_QPA_PLATFORM=offscreen BG_REMOVER_LANG=en ./build/test_gui ./u2netp.onnx
+QT_QPA_PLATFORM=offscreen ALETHEIA_LANG=pt ./build/test_gui ./u2netp.onnx
+QT_QPA_PLATFORM=offscreen ALETHEIA_LANG=en ./build/test_gui ./u2netp.onnx
 ```
 
 ## Estilo e convenções

@@ -67,9 +67,38 @@ QString stylesheet(bool dark)
     q += QString("QFrame#inspector { background: %1;"
                  " border: 1px solid %2; border-radius: 10px; }\n")
              .arg(surface, border);
-    q += QString("QFrame#batchBar { background: %1;"
+    q += QString("QFrame#batchBar, QFrame#batchCard { background: %1;"
                  " border: 1px solid %2; border-radius: 10px; }\n")
-             .arg(logBg, border);
+             .arg(surface, border);
+    q += QString("QFrame#editorFooter { background: %1;"
+                 " border-top: 1px solid %2; border-bottom-left-radius: 10px;"
+                 " border-bottom-right-radius: 10px; }\n")
+             .arg(surface, border);
+    q += QString("QFrame#dropZone { background: %1; border: 2px dashed %2;"
+                 " border-radius: 16px; }\n").arg(surface, border);
+    q += QString("QFrame#dropZone:hover { border-color: %1; }\n").arg(accent);
+    q += "QLabel#dropZoneIcon { font-size: 36px; margin-bottom: 2px; }\n";
+    q += QString("QLabel#dropZoneTitle { font-size: 17px; font-weight: 700;"
+                 " color: %1; }\n").arg(text);
+    q += QString("QLabel#dropZoneSubtitle { font-size: 12px; color: %1;"
+                 " margin-bottom: 6px; }\n").arg(muted);
+    q += QString("QPushButton#dropZonePickBtn { background: %1; border: 1px solid %1;"
+                 " color: %2; font-weight: 700; padding: 9px 18px; border-radius: 8px; }\n")
+             .arg(accent, accentTxt);
+    q += QString("QPushButton#dropZonePickBtn:hover { background: %1; }\n").arg(accentHov);
+    q += QString("QPushButton#dropZonePasteBtn { background: %1; border: 1px solid %2;"
+                 " color: %3; font-weight: 600; padding: 9px 18px; border-radius: 8px; }\n")
+             .arg(inputBg, border, text);
+    q += QString("QPushButton#dropZonePasteBtn:hover { background: %1; border-color: %2; }\n")
+             .arg(hover, accent);
+    q += QString("QLabel#imageStatusLabel { color: %1; font-size: 12px; font-weight: 500; }\n").arg(muted);
+    q += QString("QLabel#batchPageTitle { font-size: 18px; font-weight: 700; color: %1; }\n").arg(text);
+    q += QString("QLabel#batchPageSubtitle { font-size: 13px; color: %1; }\n").arg(muted);
+    q += QString("QPushButton#batchLogToggle { background: transparent; border: 0;"
+                 " color: %1; text-align: left; font-size: 12px; font-weight: 500; }\n").arg(muted);
+    q += QString("QPushButton#collapsibleHeader { background: transparent; border: 0;"
+                 " text-align: left; padding: 8px 4px; font-weight: 700; color: %1; font-size: 13px; }\n").arg(text);
+    q += QString("QPushButton#collapsibleHeader:hover { color: %1; }\n").arg(accent);
     q += QString("QFrame#previewPanel { background: %1;"
                  " border: 1px solid %2; border-radius: 10px; }\n")
              .arg(inputBg, border);

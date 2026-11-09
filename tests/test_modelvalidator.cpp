@@ -27,7 +27,7 @@ static bool writeFile(const QString& path, const QByteArray& data)
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
-    app.setApplicationName("bg_remover_test");
+    app.setApplicationName("aletheia_test");
 
     QTemporaryDir tmp;
     if (!tmp.isValid()) {

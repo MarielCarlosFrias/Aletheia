@@ -3,7 +3,7 @@
 ## Versões suportadas
 
 Recebemos relatos para a versão estável mais recente (atualmente a série
-**1.1.x**). Se possível, confirme o problema na última release antes de
+**1.2.x**). Se possível, confirme o problema na última release antes de
 reportar.
 
 ## Como reportar uma vulnerabilidade

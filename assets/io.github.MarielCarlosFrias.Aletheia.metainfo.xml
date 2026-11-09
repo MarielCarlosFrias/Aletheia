@@ -58,14 +58,15 @@
 
   <screenshots>
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/MarielCarlosFrias/aletheia/main/docs/images/bg-remover-editor.png</image>
+      <image type="source">https://raw.githubusercontent.com/MarielCarlosFrias/aletheia/main/docs/images/aletheia-editor.png</image>
       <caption>Editor with the original image and the transparent result</caption>
       <caption xml:lang="pt-BR">Editor com a imagem original e o resultado transparente</caption>
     </screenshot>
   </screenshots>
 
   <releases>
-    <release version="1.2.0" date="2026-11-04"/>
+    <release version="1.2.1" date="2026-11-09"/>
+    <release version="1.2.0" date="2026-11-03"/>
     <release version="1.1.0" date="2026-11-01"/>
   </releases>
 

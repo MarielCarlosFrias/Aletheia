@@ -4,7 +4,36 @@ Todas as alterações relevantes são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [1.2.1] - 2026-11-09
+
+### Adicionado
+
+- Novo nome e identidade **Aletheia**, com os binários `aletheia` e
+  `aletheia_cli`, novos caminhos de instalação e compatibilidade com as
+  configurações e modelos do BG Remover.
+- Interface redesenhada: estado vazio com arrastar e soltar, inspector em
+  accordion, aba **Lote** e rodapé com as informações da imagem.
+- README em inglês e português, capturas atualizadas, man page, entrada
+  desktop, metadados AppStream e ícone próprios.
+- Estrutura do repositório reorganizada em `src/core`, `src/gui`, `src/cli`,
+  `tests` e `assets`.
+- Ícone de janela em PNG, ícone `.icns` do bundle macOS e ícone PNG nos
+  pacotes Linux.
+
+### Alterado
+
+- CI e release atualizados para os novos nomes e para verificar o bundle
+  `Aletheia.app` no macOS.
+- Opções CMake e variáveis de ambiente antigas mantidas por compatibilidade.
+- Capturas de ecrã regeneradas com o novo design e caminhos genéricos.
+
+### Corrigido
+
+- Nome do bundle e do executável macOS (`Aletheia.app` e
+  `Contents/MacOS/Aletheia`), alinhado com o instalador e o CI.
+- Caminhos pessoais removidos dos testes e das capturas de ecrã.
+
+## [1.2.0] - 2026-11-03
 
 ### Adicionado
 

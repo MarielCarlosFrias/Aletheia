@@ -56,7 +56,7 @@ QStringList ModelPathResolver::candidates(const QString& modelName)
     paths << applicationDir.filePath(modelName);
     paths << applicationDir.filePath("../" + modelName);
 #ifdef Q_OS_MACOS
-    // App bundle: Contents/MacOS/bg_remover_gui -> Contents/Resources.
+    // App bundle: Contents/MacOS/Aletheia -> Contents/Resources.
     paths << applicationDir.filePath("../Resources/" + modelName);
 #endif
 #ifdef INSTALLED

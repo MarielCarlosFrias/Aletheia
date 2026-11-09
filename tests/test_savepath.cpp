@@ -22,7 +22,7 @@ static QString p(const QString& name)
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
-    app.setApplicationName("bg_remover_test");
+    app.setApplicationName("aletheia_test");
 
     CHECK(savePathWithExtension(p("foto"), "png") == p("foto.png"),
           "sem extensao -> acrescenta .png");

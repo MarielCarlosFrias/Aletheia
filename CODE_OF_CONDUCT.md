@@ -42,7 +42,7 @@ violem este código. As decisões serão proporcionais à gravidade e à reincid
 
 Este código aplica-se a issues, pull requests, discussões, revisões de código e
 qualquer outro espaço do projeto, bem como a interações públicas quando alguém
-representa o BG Remover.
+representa o Aletheia.
 
 ## Atribuição
 

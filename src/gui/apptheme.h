@@ -34,7 +34,8 @@ QString stylesheet(bool dark);
 // os widgets. Persiste a escolha em QSettings.
 void apply(bool dark);
 
-// Tema atual: env BG_REMOVER_THEME=dark|light tem prioridade
+// Tema atual: env ALETHEIA_THEME=dark|light tem prioridade
+// (BG_REMOVER_THEME ainda funciona)
 // (util para testes/snapshots); caso contrario, QSettings.
 bool isDark();
 

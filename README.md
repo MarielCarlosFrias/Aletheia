@@ -15,7 +15,7 @@ Powered by modern deep learning models (U²-Net, BRIA RMBG, BiRefNet) and color-
 
 No cloud uploads, no API subscriptions, no telemetry. Your photos and data never leave your device.
 
-![Aletheia Editor: original image on the left, background removed with preview controls on the right](docs/images/bg-remover-editor.png)
+![Aletheia Editor: original image on the left, background removed with preview controls on the right](docs/images/aletheia-editor.png)
 
 ---
 
@@ -41,7 +41,7 @@ No cloud uploads, no API subscriptions, no telemetry. Your photos and data never
 
 Ready-to-use binaries are automatically generated and tested for every release on GitHub:
 
-👉 [**Download the Latest Release (v1.2.0)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
+👉 [**Download the Latest Release (v1.2.1)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |
@@ -86,17 +86,19 @@ For pixel art graphics, game sprites, green screens, or illustrations on solid b
 ### Model Manager Tab
 Download, verify, or remove additional models with a single click. Downloaded models are stored locally (`~/.local/share/aletheia/models` on Linux, `%APPDATA%/aletheia/models` on Windows) and instantly available across both GUI and CLI (with automatic fallback to legacy directories).
 
-![Model Manager Tab](docs/images/bg-remover-modelos.png)
+![Model Manager Tab](docs/images/aletheia-models.png)
 
 ### Batch Processing
 Select an input folder, an output destination, and process hundreds of images in sequence.
 - Non-blocking background worker with progress bar, log, and **Cancel** button.
 - Collision-free naming: existing output files are never overwritten (automatic numbered variations like `_rembg_1.png`).
 
+![Batch Processing Tab](docs/images/aletheia-batch.png)
+
 ### Integrated Help & Shortcuts
 Press `F1` or open the **Help** tab for a quickstart guide, tool explanations, and complete shortcut references.
 
-![Help Tab](docs/images/bg-remover-ajuda.png)
+![Help Tab](docs/images/aletheia-help.png)
 
 ---
 
@@ -171,6 +173,9 @@ cmake --build build --parallel
 open build/Aletheia.app
 ```
 
+> The `BG_REMOVER_*` CMake options keep the old prefix so existing build
+> scripts continue to work.
+
 ---
 
 ## 📁 Repository Structure
@@ -211,6 +216,8 @@ aletheia/
 │   └── test_gui.cpp                 # Headless offscreen GUI smoke tests
 ├── assets/                          # OS integration assets
 │   ├── aletheia.svg                 # Application vector icon
+│   ├── aletheia.png                 # Raster icon for windows/taskbars
+│   ├── aletheia.icns                # macOS application bundle icon
 │   ├── aletheia.desktop             # Linux desktop launcher entry
 │   ├── aletheia_cli.1               # UNIX man page documentation
 │   └── io.github.MarielCarlosFrias.Aletheia.metainfo.xml # AppStream metadata

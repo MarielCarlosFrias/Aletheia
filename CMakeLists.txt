@@ -1,9 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
-project(aletheia VERSION 1.2.0)
+project(aletheia VERSION 1.2.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+
+if(MSVC)
+    # Os textos da interface e os icones Unicode estao em UTF-8. Sem
+    # esta opcao o MSVC usa a code page do sistema e corrompe-os.
+    add_compile_options(/utf-8)
+endif()
 
 option(INSTALLED "Build for installed location" OFF)
 option(BG_REMOVER_FETCH_ONNX_RUNTIME
@@ -149,21 +155,26 @@ add_executable(aletheia
     src/core/batchplan.h
     src/core/backgroundremover.cpp
     src/core/backgroundremover.h)
+qt_add_resources(aletheia "aletheia_icon"
+    PREFIX "/"
+    FILES assets/aletheia.png)
 target_link_libraries(aletheia
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Concurrent
     onnxruntime)
 target_compile_definitions(aletheia PRIVATE
-    BG_REMOVER_VERSION="${PROJECT_VERSION}")
+    ALETHEIA_VERSION="${PROJECT_VERSION}")
 if(APPLE)
     # App bundle nativo: o executavel fica em Contents/MacOS e as
     # bibliotecas (ONNX + Qt via macdeployqt) em Contents/Frameworks.
     set_target_properties(aletheia PROPERTIES
         MACOSX_BUNDLE TRUE
+        OUTPUT_NAME "Aletheia"
         MACOSX_BUNDLE_BUNDLE_NAME "Aletheia"
         MACOSX_BUNDLE_GUI_IDENTIFIER
             "io.github.MarielCarlosFrias.Aletheia"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_ICON_FILE "aletheia.icns"
         INSTALL_RPATH "@executable_path/../Frameworks"
         BUILD_RPATH "${ONNX_DIR}/lib"
     )
@@ -190,7 +201,7 @@ add_executable(aletheia_cli
 target_link_libraries(aletheia_cli
     Qt6::Core Qt6::Gui onnxruntime)
 target_compile_definitions(aletheia_cli PRIVATE
-    BG_REMOVER_VERSION="${PROJECT_VERSION}")
+    ALETHEIA_VERSION="${PROJECT_VERSION}")
 if(APPLE)
     # O CLI e instalado dentro do .app para partilhar os frameworks
     # Qt/ONNX e o modelo incluido em Contents/Resources.
@@ -297,7 +308,7 @@ target_link_libraries(test_gui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Concurrent
     onnxruntime)
 target_compile_definitions(test_gui PRIVATE
-    BG_REMOVER_VERSION="${PROJECT_VERSION}")
+    ALETHEIA_VERSION="${PROJECT_VERSION}")
 if(NOT WIN32)
     set_target_properties(test_gui PROPERTIES
         BUILD_RPATH "${ONNX_DIR}/lib")
@@ -308,10 +319,10 @@ add_test(NAME gui_test_en
     COMMAND test_gui "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 set_tests_properties(gui_test_pt PROPERTIES
     ENVIRONMENT
-        "QT_QPA_PLATFORM=offscreen;BG_REMOVER_LANG=pt;BG_REMOVER_NO_UPDATE_CHECK=1")
+        "QT_QPA_PLATFORM=offscreen;ALETHEIA_LANG=pt;ALETHEIA_NO_UPDATE_CHECK=1")
 set_tests_properties(gui_test_en PROPERTIES
     ENVIRONMENT
-        "QT_QPA_PLATFORM=offscreen;BG_REMOVER_LANG=en;BG_REMOVER_NO_UPDATE_CHECK=1")
+        "QT_QPA_PLATFORM=offscreen;ALETHEIA_LANG=en;ALETHEIA_NO_UPDATE_CHECK=1")
 
 add_executable(test_batchprocessor
     tests/test_batchprocessor.cpp
@@ -399,6 +410,8 @@ elseif(APPLE)
         DESTINATION "Aletheia.app/Contents/Resources" OPTIONAL)
     install(FILES "${CMAKE_SOURCE_DIR}/assets/aletheia.svg"
         DESTINATION "Aletheia.app/Contents/Resources")
+    install(FILES "${CMAKE_SOURCE_DIR}/assets/aletheia.icns"
+        DESTINATION "Aletheia.app/Contents/Resources")
     install(FILES "${CMAKE_SOURCE_DIR}/assets/aletheia_cli.1"
         DESTINATION share/man/man1)
     if(BG_REMOVER_BUNDLE_MODELS)
@@ -441,6 +454,8 @@ else()
         DESTINATION share/metainfo)
     install(FILES "${CMAKE_SOURCE_DIR}/assets/aletheia.svg"
         DESTINATION share/icons/hicolor/scalable/apps)
+    install(FILES "${CMAKE_SOURCE_DIR}/assets/aletheia.png"
+        DESTINATION share/icons/hicolor/512x512/apps)
     install(FILES "${CMAKE_SOURCE_DIR}/assets/aletheia_cli.1"
         DESTINATION share/man/man1)
 

@@ -31,6 +31,7 @@ class QTimer;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QVBoxLayout;
+class QStackedWidget;
 class MaskEditCanvas;
 class ModelManagerWidget;
 
@@ -115,6 +116,9 @@ private:
     void restoreSettings();
     void saveSettings();
     void checkForUpdate();
+    QWidget* createBatchTab();
+    QWidget* createEmptyStateWidget();
+    void updateWorkspaceStack();
     QVBoxLayout* workspaceLayout();
     QVBoxLayout* mainLayout_ = nullptr;
     QString saveFormatFilter() const;
@@ -127,6 +131,10 @@ private:
         const std::shared_ptr<ModelCache>& cache,
         const QString& modelPath);
 
+    QStackedWidget* workspaceStack_ = nullptr;
+    QWidget* dropZoneWidget_ = nullptr;
+    QWidget* previewContainer_ = nullptr;
+    QLabel* imageStatusLabel_ = nullptr;
     QLabel* originalLabel_;
     QLabel* imageNameLabel_;
     QLabel* zoomLabel_;

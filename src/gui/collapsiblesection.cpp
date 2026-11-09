@@ -16,17 +16,12 @@ CollapsibleSection::CollapsibleSection(const QString& title,
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
 
-    // Cabecalho: um botao transparente que ocupa a linha toda.
+    // Cabecalho: um botao que ocupa a linha toda estilizado pelo AppTheme.
     header_ = new QPushButton(this);
     header_->setObjectName("collapsibleHeader");
     header_->setCheckable(true);
     header_->setChecked(expanded);
     header_->setText(QString::fromUtf8("\u25be ") + title);
-    header_->setStyleSheet(
-        "QPushButton#collapsibleHeader {"
-        "  background: transparent; border: 0; text-align: left;"
-        "  padding: 7px 2px; font-weight: 600;"
-        "}");
     outer->addWidget(header_);
 
     contentLayout_ = new QVBoxLayout(content_);

@@ -17,6 +17,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSettings>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -64,13 +65,13 @@ int main(int argc, char* argv[])
                        tmp.path());
 
     QApplication app(argc, argv);
-    app.setOrganizationName("bg-remover");
-    app.setApplicationName("bg-remover-gui-test");
+    app.setOrganizationName("aletheia");
+    app.setApplicationName("aletheia-gui-test");
 
     // Nunca consultar a rede durante os testes.
-    qputenv("BG_REMOVER_NO_UPDATE_CHECK", "1");
+    qputenv("ALETHEIA_NO_UPDATE_CHECK", "1");
 
-    const bool english = qgetenv("BG_REMOVER_LANG") == "en";
+    const bool english = qgetenv("ALETHEIA_LANG") == "en";
     const QString modelArg =
         argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
     const bool hasModel =
@@ -86,13 +87,20 @@ int main(int argc, char* argv[])
     CHECK(second.save(secondPath), "imagem de teste 2 criada");
 
     MainWindow window(nullptr, hasModel ? modelArg : QString());
+    window.resize(1100, 720);
     window.show();
     spin();
 
-    // ---- 1. Estrutura principal ----
+    // ---- 1. Estrutura principal e estado vazio ----
     auto* tabs = window.findChild<QTabWidget*>("mainTabs");
+    auto* stack = window.findChild<QStackedWidget*>("workspaceStack");
+    auto* dropZone = window.findChild<QWidget*>("dropZone");
     CHECK(tabs != nullptr, "aba principal existe");
-    CHECK(tabs && tabs->count() == 3, "tres abas: Editor, Modelos, Ajuda");
+    CHECK(tabs && tabs->count() == 4, "quatro abas: Editor, Lote, Modelos, Ajuda");
+    CHECK(stack != nullptr, "stack da area de trabalho existe");
+    CHECK(stack && stack->currentIndex() == 0,
+          "sem imagem, o estado vazio e mostrado");
+    CHECK(dropZone != nullptr, "cartao de arrastar/soltar existe");
     CHECK(window.windowTitle().startsWith("Aletheia"),
           "titulo da janela contem Aletheia");
 
@@ -100,8 +108,10 @@ int main(int argc, char* argv[])
     auto* lang = window.findChild<QComboBox*>("langCombo");
     CHECK(lang && lang->count() == 2, "seletor de idioma tem PT e EN");
     CHECK(lang && lang->currentIndex() == (english ? 1 : 0),
-          "idioma inicial segue BG_REMOVER_LANG");
-    CHECK(tabs && tabs->tabText(2) == (english ? "Help" : "Ajuda"),
+          "idioma inicial segue ALETHEIA_LANG");
+    CHECK(tabs && tabs->tabText(1) == (english ? "Batch" : "Lote"),
+          "aba Lote traduzida");
+    CHECK(tabs && tabs->tabText(3) == (english ? "Help" : "Ajuda"),
           "aba Ajuda traduzida");
 
     // ---- 3. Formato de saida ----
@@ -127,6 +137,12 @@ int main(int argc, char* argv[])
     CHECK(imageName
               && imageName->text() == QFileInfo(firstPath).fileName(),
           "nome da imagem aberta aparece na barra");
+    CHECK(stack && stack->currentIndex() == 1,
+          "abrir imagem troca o estado vazio pela area de edicao");
+    auto* status = window.findChild<QLabel*>("imageStatusLabel");
+    CHECK(status && status->text().contains("160")
+              && status->text().contains("100"),
+          "rodape mostra as dimensoes da imagem");
     if (original) {
         const QPixmap preview = original->pixmap();
         CHECK(!preview.isNull(), "preview original recebeu a imagem");

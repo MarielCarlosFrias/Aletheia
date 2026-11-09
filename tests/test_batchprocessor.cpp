@@ -29,7 +29,7 @@ static bool writeGarbage(const QString& path)
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
-    app.setApplicationName("bg_remover_test");
+    app.setApplicationName("aletheia_test");
 
     if (argc < 2) {
         std::printf("FALHOU: falta o caminho do modelo ONNX\n");

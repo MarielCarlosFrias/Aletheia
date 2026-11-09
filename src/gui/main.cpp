@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QIcon>
 #include "apptheme.h"
 #include "mainwindow.h"
 #include "modelpathresolver.h"
@@ -9,9 +10,11 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setOrganizationName("aletheia");
     QApplication::setApplicationName("aletheia");
+    QApplication::setWindowIcon(QIcon(":/assets/aletheia.png"));
 
-    // Tema escuro/claro: env BG_REMOVER_THEME=dark|light tem prioridade,
-    // caso contrario usa (e grava em) QSettings.
+    // Tema escuro/claro: env ALETHEIA_THEME=dark|light tem prioridade
+    // (BG_REMOVER_THEME ainda funciona), caso contrario usa (e grava em)
+    // QSettings.
     AppTheme::apply(AppTheme::isDark());
 
     QString modelPath;
@@ -21,7 +24,7 @@ int main(int argc, char* argv[]) {
         if (arg.endsWith(".onnx", Qt::CaseInsensitive)) {
             if (QFile::exists(arg)) modelPath = arg;
         } else if (QFileInfo(arg).isFile()) {
-            // `bg_remover_gui foto.png` abre a imagem; antes o
+            // `aletheia foto.png` abre a imagem; antes o
             // caminho era passado como se fosse um modelo ONNX.
             imagePath = arg;
         }

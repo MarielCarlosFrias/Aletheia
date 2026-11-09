@@ -18,7 +18,7 @@ static int failures = 0;
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
-    app.setApplicationName("bg_remover_test");
+    app.setApplicationName("aletheia_test");
 
     // ---- Caso 1: nao existe em lado nenhum ----
     // resolve() nao pode devolver vazio: a GUI mostra o caminho no
