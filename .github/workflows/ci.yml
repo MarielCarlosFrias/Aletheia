@@ -56,7 +56,7 @@ jobs:
   macos:
     # Runner Apple Silicon: o binario e compilado universal2 para
     # correr tambem em Macs Intel.
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 

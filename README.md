@@ -41,7 +41,7 @@ No cloud uploads, no API subscriptions, no telemetry. Your photos and data never
 
 Ready-to-use binaries are automatically generated and tested for every release on GitHub:
 
-👉 [**Download the Latest Release (v1.2.1)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
+👉 [**Download the Latest Release (v1.2.2)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |

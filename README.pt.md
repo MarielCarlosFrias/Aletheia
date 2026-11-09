@@ -41,7 +41,7 @@ Sem envio de fotos para a nuvem, sem assinaturas ou APIs pagas, sem necessidade 
 
 Binários prontos para uso são gerados e testados automaticamente em cada versão:
 
-👉 [**Baixar a Versão Mais Recente (v1.2.1)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
+👉 [**Baixar a Versão Mais Recente (v1.2.2)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
 
 | Plataforma | Pacote | Descrição |
 | :--- | :--- | :--- |

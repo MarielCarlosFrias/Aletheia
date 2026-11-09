@@ -130,7 +130,7 @@ jobs:
           path: dist/*.zip
 
   macos-zip:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Install aqt and Qt 6.7.3

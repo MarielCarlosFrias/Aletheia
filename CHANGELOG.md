@@ -4,6 +4,15 @@ Todas as alterações relevantes são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.2] - 2026-11-09
+
+### Corrigido
+
+- Workflows de CI e release passam a usar o runner `macos-15`, depois de o
+  GitHub ter retirado as imagens `macos-14` em 2 de novembro de 2026.
+- A release v1.2.2 repõe o pacote `aletheia_1.2.2_macos_universal2.zip`, que
+  ficou em falta na v1.2.1.
+
 ## [1.2.1] - 2026-11-09
 
 ### Adicionado
