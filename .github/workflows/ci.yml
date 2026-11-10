@@ -51,7 +51,14 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          # A saida do ctest tambem vai para as anotacoes do job: sem
+          # isso, um teste que falha so deixa "exit code 8" no log.
+          set -o pipefail
+          ctest --test-dir build --output-on-failure 2>&1 | tee ctest.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error title=Test failure::$(sed 's/%/%25/g; s/\r/%0D/g' ctest.log | tr '\n' '%0A' | head -c 6000)"
+          fi
 
   macos:
     # Runner Apple Silicon: o binario e compilado universal2 para
@@ -98,7 +105,15 @@ jobs:
       - name: Build and test
         run: |
           cmake --build build --parallel
-          ctest --test-dir build --output-on-failure
+      - name: Test
+        run: |
+          # A saida do ctest tambem vai para as anotacoes do job: sem
+          # isso, um teste que falha so deixa "exit code 8" no log.
+          set -o pipefail
+          ctest --test-dir build --output-on-failure 2>&1 | tee ctest.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error title=Test failure::$(sed 's/%/%25/g; s/\r/%0D/g' ctest.log | tr '\n' '%0A' | head -c 6000)"
+          fi
 
       - name: Install and deploy bundle
         run: |
@@ -183,7 +198,16 @@ jobs:
       - name: Build and test
         run: |
           cmake --build build --config Release --parallel
-          ctest --test-dir build -C Release --output-on-failure
+      - name: Test
+        shell: pwsh
+        run: |
+          # A saida do ctest tambem vai para as anotacoes do job.
+          ctest --test-dir build -C Release --output-on-failure 2>&1 |
+            Tee-Object -FilePath ctest.log
+          if ($LASTEXITCODE -ne 0) {
+            $c = (Get-Content ctest.log -Raw) -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Output "::error title=Test failure::$($c.Substring(0, [Math]::Min(6000, $c.Length)))"
+          }
 
       - name: Package portable ZIP
         run: cpack --config build/CPackConfig.cmake -C Release -G ZIP -B dist
