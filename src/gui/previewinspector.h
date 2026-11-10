@@ -3,7 +3,9 @@
 
 #include <QObject>
 #include <QImage>
+#include <QPixmap>
 #include <QPoint>
+#include <QSize>
 
 class QLabel;
 class QScrollArea;
@@ -59,6 +61,11 @@ private:
     QImage m_originalImage;
     QImage m_resultImage;
     int m_previewZoomPercent = 100;
+    // Preview do original ja escalado: sem este cache, cada passo de
+    // zoom voltava a converter e escalar a imagem inteira (dezenas de MB
+    // por evento numa foto grande).
+    QPixmap m_originalScaled;
+    QSize m_originalScaledSize;
 };
 
 #endif // PREVIEWINSPECTOR_H

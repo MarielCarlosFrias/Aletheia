@@ -168,10 +168,11 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       zoomDebounce_(new QTimer(this)),
       customBgColor_(QColor()),
       // Ordem igual a da declaracao na classe (evita -Wreorder).
-      preview_(new PreviewInspector(this)),
-      batch_(new BatchTabController(this)),
+      // Ordem igual a da declaracao na classe (evita -Wreorder).
       inference_(new InferenceWorker(this)),
-      modelCache_(inference_->cache())
+      modelCache_(inference_->cache()),
+      preview_(new PreviewInspector(this)),
+      batch_(new BatchTabController(this))
 {
     originalLabel_->setAlignment(Qt::AlignCenter);
 
@@ -755,6 +756,8 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     // A inferencia corre numa thread; o resultado volta pelo watcher.
     connect(inference_, &InferenceWorker::finished,
             this,       &MainWindow::onRemoveFinished);
+    connect(&colorWatcher_, &QFutureWatcher<QImage>::finished,
+            this,            &MainWindow::onColorRemovalFinished);
 
     // Atalhos de teclado.
     auto* scOpen = new QShortcut(QKeySequence::Open, this);
@@ -1642,7 +1645,8 @@ void MainWindow::closeEvent(QCloseEvent* event)
     if (batch_->isRunning())
         batch_->requestCancel();
 
-    if (inference_->isRunning() || batch_->isRunning()) {
+    if (inference_->isRunning() || batch_->isRunning()
+        || colorWatcher_.isRunning()) {
         if (!closeRequested_) {
             closeRequested_ = true;
             logEdit_->appendPlainText("[INFO] " + TR(
@@ -1660,7 +1664,8 @@ void MainWindow::closeEvent(QCloseEvent* event)
 void MainWindow::maybeCloseAfterJobs()
 {
     if (!closeRequested_) return;
-    if (inference_->isRunning() || batch_->isRunning()) return;
+    if (inference_->isRunning() || batch_->isRunning()
+        || colorWatcher_.isRunning()) return;
 
     // O close() volta a entrar em closeEvent(); sem jobs pendentes
     // a janela fecha normalmente.
@@ -1972,23 +1977,47 @@ void MainWindow::removeByColor()
             TR("Abra uma imagem primeiro.", "Open an image first."));
         return;
     }
+    if (colorWatcher_.isRunning()) return;
 
     const int tol = colorToleranceSpin_->value();
     const bool contiguous = colorContiguousCheckBox_->isChecked();
     const bool pixelArt = colorPixelArtCheckBox_->isChecked();
 
-    QImage removed = ImagePostProcessor::removeByColor(
-        preview_->originalImage(), keyColor_, tol, contiguous, pixelArt);
+    // A inundacao de regiao percorre a imagem toda: numa foto de 6 MP
+    // demora ~1,8 s, o que congelava a janela. Agora corre na thread
+    // de trabalho, como a inferencia.
+    setUiBusy(true);
+    progressBar_->setRange(0, 0);
+    progressBar_->setValue(0);
+    progressBar_->setVisible(true);
+    colorWatcher_.setFuture(QtConcurrent::run(
+        [img = preview_->originalImage(), color = keyColor_,
+         tol, contiguous, pixelArt]() {
+            return ImagePostProcessor::removeByColor(
+                img, color, tol, contiguous, pixelArt);
+        }));
+}
 
-    preview_->setResult(removed);
-    updateResultDisplay();
-    btnAutoCrop_->setEnabled(true);
-    btnDragOut_->setEnabled(true);
+void MainWindow::onColorRemovalFinished()
+{
+    progressBar_->setVisible(false);
+    progressBar_->setRange(0, 100);
+    progressBar_->setValue(0);
+    setUiBusy(false);
 
-    logEdit_->appendPlainText(QString("[OK] %1 (%2: %3, %4: %5%)")
-        .arg(TR("Remoção por cor concluída", "Color removal completed"))
-        .arg(TR("Cor", "Color"))
-        .arg(keyColor_.name().toUpper())
-        .arg(TR("Tolerância", "Tolerance"))
-        .arg(tol));
+    const QImage removed = colorWatcher_.result();
+    if (!removed.isNull()) {
+        preview_->setResult(removed);
+        updateResultDisplay();
+        btnAutoCrop_->setEnabled(true);
+        btnDragOut_->setEnabled(true);
+        logEdit_->appendPlainText(QString("[OK] %1 (%2: %3, %4: %5%)")
+            .arg(TR("Remoção por cor concluída", "Color removal completed"))
+            .arg(TR("Cor", "Color"))
+            .arg(keyColor_.name().toUpper())
+            .arg(TR("Tolerância", "Tolerance"))
+            .arg(colorToleranceSpin_->value()));
+    }
+    emit jobFinished();
+    maybeCloseAfterJobs();
 }

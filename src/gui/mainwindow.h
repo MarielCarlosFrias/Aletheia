@@ -9,7 +9,6 @@
 #include <QList>
 #include <memory>
 #include "backgroundremover.h"
-#include "batchplan.h"
 #include "processingoptions.h"
 #include "inferenceworker.h"
 
@@ -87,6 +86,7 @@ private slots:
     void pickKeyColor();
     void autoDetectKeyColor();
     void removeByColor();
+    void onColorRemovalFinished();
 
 private:
     void updateKeyColorButton();
@@ -178,8 +178,6 @@ private:
     bool showMaskPreview_ = false;
     QAction *actionShowMaskPreview_ = nullptr;
 
-    QImage originalImage_;
-    QImage resultImage_;
     QString currentImagePath_;
     // Muda sempre que uma imagem nova e carregada; resultados de
     // inferencias antigas sao descartados em onRemoveFinished().
@@ -194,6 +192,9 @@ private:
     PreviewInspector* preview_ = nullptr;
     // Aba "Lote": pastas, plano e processamento em serie.
     BatchTabController* batch_ = nullptr;
+    // Remocao por cor: a inundacao de regiao pode demorar segundos
+    // numa foto grande, por isso corre na thread de trabalho.
+    QFutureWatcher<QImage> colorWatcher_;
 };
 
 #endif

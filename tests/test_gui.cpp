@@ -393,6 +393,50 @@ int main(int argc, char* argv[])
         std::printf("SKIP: sem modelo, o lote completo nao e testado\n");
     }
 
+    // ---- 13. Remocao por cor (corre na thread de trabalho) ----
+    // A inundacao de regiao demorava segundos e bloqueava a janela;
+    // agora e assincrona, tal como a inferencia.
+    {
+        const QString colorButtonText = english ? "Remove background color"
+                                                : "Remover cor de fundo";
+        QPushButton* byColor = nullptr;
+        for (QPushButton* b : window.findChildren<QPushButton*>()) {
+            if (b->text() == colorButtonText) { byColor = b; break; }
+        }
+        CHECK(byColor != nullptr, "caso13: botao de remocao por cor existe");
+        if (byColor && log) {
+            window.openPath(firstPath);
+            spin();
+            bool colorDone = false;
+            QEventLoop colorLoop;
+            QObject::connect(&window, &MainWindow::jobFinished, &colorLoop,
+                             [&colorDone, &colorLoop]() {
+                colorDone = true;
+                colorLoop.quit();
+            });
+            QTimer colorGuard;
+            QObject::connect(&colorGuard, &QTimer::timeout, []() {
+                if (QWidget* modal = QApplication::activeModalWidget())
+                    modal->close();
+            });
+            colorGuard.start(50);
+
+            byColor->click();
+            if (!colorDone) {
+                QTimer::singleShot(60000, &colorLoop, &QEventLoop::quit);
+                colorLoop.exec();
+            }
+            colorGuard.stop();
+            spin();
+
+            CHECK(colorDone, "caso13: a remocao por cor termina");
+            CHECK(log->toPlainText().contains(
+                      english ? "Color removal completed"
+                              : "Remoção por cor concluída"),
+                  "caso13: o log confirma a remocao por cor");
+        }
+    }
+
     window.close();
     spin();
 

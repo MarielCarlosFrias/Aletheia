@@ -45,6 +45,9 @@ GUI: utilizador carrega imagem (abre/arrasta/cola) -> escolhe modelo e opcoes ->
 14. **DEB sem `postinst`** — a lib do ONNX nao era registada no cache do linker (`ldconfig`).
 15. **7 dos 9 modelos do catalogo sem SHA256** — todos tem agora hash publicado (baixados e verificados um a um).
 16. **CI**: actions fixadas por SHA, cache do Qt, `contents: write` so no job de publicacao, versao do CMake comparada com a tag e `linuxdeploy` verificado pelo `.zsync`.
+17. **Ordem de inicializacao dos membros** desalinhada (aviso `-Wreorder`) e membros/includes obsoletos no `MainWindow`.
+18. **Preview do original reescalado a cada passo de zoom** (12 MP => 42 ms e 48 MB por evento): agora existe cache do preview escalado (9 ms).
+19. **Remocao por cor (chroma key) na thread da GUI**: a inundacao de regiao demorava 1,8 s numa foto de 6 MP e congelava a janela. Passou a correr na thread de trabalho e a pilha passou a guardar indices (4 bytes) em vez de `QPoint` (8 bytes): 1841 ms -> 1261 ms.
 
 ## Pontos fracos
 
@@ -56,7 +59,8 @@ GUI: utilizador carrega imagem (abre/arrasta/cola) -> escolhe modelo e opcoes ->
 6. `src/gui/mainwindow.cpp` — o cancelamento so tem efeito depois de o modelo estar carregado.
 7. `src/core/modelmanager.cpp` — os modelos sao descarregados de um repositorio de terceiros (o projeto nao publica releases proprias).
 8. `.github/workflows/release.yml` — os `SHA256SUMS` nao sao assinados (nem minisign/cosign) e o `linuxdeploy` so tem build "continuous" (verificado pelo `.zsync`, sem assinatura).
-9. `src/gui/mainwindow.cpp` — o refactor em controllers comecou (preview, inferencia e lote ja sairam), mas a janela principal ainda tem ~1990 linhas; o resto (inspector de opcoes, barra de estado) ainda esta dentro dela.
+9. `src/gui/mainwindow.cpp` — o refactor em controllers comecou (preview, inferencia e lote ja sairam), mas a janela principal ainda tem ~2000 linhas; o resto (inspector de opcoes, barra de estado) ainda esta dentro dela.
+10. `src/gui/mainwindow.cpp` — o post-processamento pesado ao **salvar** (contorno de sticker e sombra) continua na thread da interface e pode congelar a janela numa foto grande.
 
 ## Ideias de melhoria
 

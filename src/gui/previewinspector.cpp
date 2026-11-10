@@ -34,6 +34,8 @@ void PreviewInspector::init(QLabel* originalLabel,
 void PreviewInspector::setOriginal(const QImage& img)
 {
     m_originalImage = img;
+    m_originalScaled = QPixmap();
+    m_originalScaledSize = QSize();
     // Troca primeiro para a area de edicao: o preview so tem tamanho
     // util depois de o stack mostrar a pagina do editor.
     updateWorkspaceStack();
@@ -116,8 +118,15 @@ void PreviewInspector::updatePreviewZoom()
     if (originalViewport.isEmpty()) return;
     const QSize fittedOriginal = m_originalImage.size().scaled(
         originalViewport, Qt::KeepAspectRatio);
-    m_originalLabel->setPixmap(QPixmap::fromImage(m_originalImage).scaled(
-        fittedOriginal, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    // Escala a QImage (e nao a QPixmap) e guarda o resultado: o
+    // preview do original so muda quando a janela muda de tamanho.
+    if (m_originalScaled.isNull() || m_originalScaledSize != fittedOriginal) {
+        m_originalScaled = QPixmap::fromImage(
+            m_originalImage.scaled(fittedOriginal, Qt::KeepAspectRatio,
+                                   Qt::SmoothTransformation));
+        m_originalScaledSize = fittedOriginal;
+    }
+    m_originalLabel->setPixmap(m_originalScaled);
     m_originalLabel->resize(fittedOriginal);
 
     // O zoom (botoes, Ctrl+/- e Ctrl+roda) aplica-se so ao Resultado,

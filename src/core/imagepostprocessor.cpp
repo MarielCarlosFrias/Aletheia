@@ -545,17 +545,23 @@ QImage ImagePostProcessor::removeByColor(const QImage& input,
             }
         }
     } else {
+        // Inundacao por regiao: a pilha guarda o indice do pixel (4
+        // bytes) em vez de um QPoint (8 bytes) - numa foto de 12 MP a
+        // diferenca e dezenas de MB de memoria, e o acesso as linhas
+        // fica mais rapido.
         std::vector<uint8_t> visited(static_cast<size_t>(w * h), 0);
-        std::queue<QPoint> q;
+        std::vector<uint32_t> stack;
+        stack.reserve(static_cast<size_t>(w) * 4);
 
         auto tryPush = [&](int x, int y) {
             if (x < 0 || x >= w || y < 0 || y >= h) return;
-            const size_t idx = static_cast<size_t>(y * w + x);
+            const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w)
+                               + static_cast<size_t>(x);
             if (visited[idx]) return;
             const uchar* pixel = result.constScanLine(y) + x * 4;
             if (matchesColor(pixel[0], pixel[1], pixel[2])) {
                 visited[idx] = 1;
-                q.push(QPoint(x, y));
+                stack.push_back(static_cast<uint32_t>(idx));
             }
         };
 
@@ -568,17 +574,19 @@ QImage ImagePostProcessor::removeByColor(const QImage& input,
             tryPush(w - 1, y);
         }
 
-        while (!q.empty()) {
-            const QPoint pt = q.front();
-            q.pop();
+        while (!stack.empty()) {
+            const uint32_t idx = stack.back();
+            stack.pop_back();
+            const int x = static_cast<int>(idx % static_cast<uint32_t>(w));
+            const int y = static_cast<int>(idx / static_cast<uint32_t>(w));
 
-            uchar* p = result.scanLine(pt.y()) + pt.x() * 4;
+            uchar* p = result.scanLine(y) + x * 4;
             p[3] = static_cast<uchar>(calcAlpha(p[0], p[1], p[2], p[3]));
 
-            tryPush(pt.x() + 1, pt.y());
-            tryPush(pt.x() - 1, pt.y());
-            tryPush(pt.x(), pt.y() + 1);
-            tryPush(pt.x(), pt.y() - 1);
+            tryPush(x + 1, y);
+            tryPush(x - 1, y);
+            tryPush(x, y + 1);
+            tryPush(x, y - 1);
         }
     }
 
