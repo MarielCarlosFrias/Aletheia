@@ -40,6 +40,11 @@ GUI: utilizador carrega imagem (abre/arrasta/cola) -> escolhe modelo e opcoes ->
 9. **Teste de regressao visual criava a baseline quando faltava** (escondia regressoes) e tinha um caminho absoluto fixo. Agora falha sem baseline (`VISUAL_REGRESSION_UPDATE=1` regenera) e os caminhos sao relativos ao source.
 10. **Botao primario desativado mantinha a cor de destaque** (regra QSS por id ganha a `:disabled`).
 11. **Codigo morto** — `batchtabcontroller`, `inferenceworker` e `previewinspector` (nunca usados) foram removidos.
+12. **Lote: uma thread por imagem** — pool fixo de threads com `--jobs/-j` no CLI.
+13. **Cada alvo de teste recompilava as fontes** — passou a existir a biblioteca partilhada `aletheia_core`/`aletheia_gui`.
+14. **DEB sem `postinst`** — a lib do ONNX nao era registada no cache do linker (`ldconfig`).
+15. **7 dos 9 modelos do catalogo sem SHA256** — todos tem agora hash publicado (baixados e verificados um a um).
+16. **CI**: actions fixadas por SHA, cache do Qt, `contents: write` so no job de publicacao, versao do CMake comparada com a tag e `linuxdeploy` verificado pelo `.zsync`.
 
 ## Pontos fracos
 
@@ -49,10 +54,9 @@ GUI: utilizador carrega imagem (abre/arrasta/cola) -> escolhe modelo e opcoes ->
 4. `CMakeLists.txt` — build falha sem rede quando ONNX Runtime nao esta presente; dependencia externa baixada em tempo de build.
 5. `src/core/backgroundremover.cpp` — deteccao de logit vs probabilidade e por amostragem (nao ha metadados no modelo).
 6. `src/gui/mainwindow.cpp` — o cancelamento so tem efeito depois de o modelo estar carregado.
-7. `CMakeLists.txt` — cada alvo de teste recompila as fontes em vez de linkar uma biblioteca partilhada (build lento e risco de divergencia).
-8. `src/core/modelmanager.cpp` — os modelos sao descarregados de um repositorio de terceiros; a verificacao por SHA256 so cobre os modelos com hash publicado.
-9. `.github/workflows/` — actions fixadas por tag (nao por SHA), `linuxdeploy` do canal `continuous` sem checksum, `contents: write` no workflow inteiro e sem cache de Qt/ONNX/modelo.
-10. `.github/workflows/release.yml` — a versao do `CMakeLists.txt` nao e verificada contra a tag e os `SHA256SUMS` nao sao assinados.
+7. `src/core/modelmanager.cpp` — os modelos sao descarregados de um repositorio de terceiros (o projeto nao publica releases proprias).
+8. `.github/workflows/release.yml` — os `SHA256SUMS` nao sao assinados (nem minisign/cosign) e o `linuxdeploy` so tem build "continuous" (verificado pelo `.zsync`, sem assinatura).
+9. `src/gui/mainwindow.cpp` — o refactor em controllers continua por fazer (2450 linhas).
 
 ## Ideias de melhoria
 
