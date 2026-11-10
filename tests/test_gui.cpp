@@ -60,9 +60,26 @@ int main(int argc, char* argv[])
         return 1;
     }
     qputenv("XDG_CONFIG_HOME", tmp.path().toUtf8());
+
+    // O QSettings usa o formato NATIVO: ficheiro .conf no Linux,
+    // REGISTO no Windows e plist no macOS. O setDefaultFormat() nao
+    // afeta o construtor QSettings(org, app), por isso o caminho do
+    // formato nativo tambem tem de ser isolado - caso contrario o
+    // teste escreve nas definicoes reais do utilizador e herda valores
+    // de execucoes anteriores (foi assim que a pasta de saida do lote
+    // falhou em macOS e Windows).
+    QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope,
+                       tmp.path());
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                        tmp.path());
+    {
+        // No Windows o caminho do registo nao pode ser mudado: limpa-
+        // se o que estiver la antes de comecar.
+        QSettings native(QSettings::NativeFormat, QSettings::UserScope,
+                         "aletheia", "aletheia");
+        native.clear();
+    }
 
     QApplication app(argc, argv);
     app.setOrganizationName("aletheia");
@@ -378,6 +395,13 @@ int main(int argc, char* argv[])
 
     window.close();
     spin();
+
+    {
+        // Nao deixar as definicoes do teste no registo do utilizador.
+        QSettings native(QSettings::NativeFormat, QSettings::UserScope,
+                         "aletheia", "aletheia");
+        native.clear();
+    }
 
     std::printf(failures == 0
         ? "\nTODOS OS TESTES GUI PASSARAM\n"
