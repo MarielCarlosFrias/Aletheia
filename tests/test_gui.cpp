@@ -316,6 +316,54 @@ int main(int argc, char* argv[])
           "pasta de saida padrao do lote e _rembg");
     CHECK(save && copy, "botoes Salvar e Copiar existem");
 
+    // ---- 12. Lote completo (processa uma pasta de imagens) ----
+    // O lote vive no BatchTabController: este caso garante que a
+    // extracao nao quebrou o processamento de verdade.
+    auto* processBatch = window.findChild<QPushButton*>("processBatchButton");
+    if (processBatch && input && output && hasModel) {
+        const QString batchIn = tmp.filePath("lote_in");
+        const QString batchOut = tmp.filePath("lote_out");
+        QDir().mkpath(batchIn);
+        QImage batchImage(40, 30, QImage::Format_RGB32);
+        batchImage.fill(Qt::blue);
+        CHECK(batchImage.save(batchIn + "/a.png", "PNG"),
+              "caso12: imagem do lote criada");
+        input->setText(batchIn);
+        output->setText(batchOut);
+
+        bool batchDone = false;
+        QEventLoop batchLoop;
+        QObject::connect(&window, &MainWindow::jobFinished, &batchLoop,
+                         [&batchDone, &batchLoop]() {
+            batchDone = true;
+            batchLoop.quit();
+        });
+        QTimer modalGuard2;
+        QObject::connect(&modalGuard2, &QTimer::timeout, []() {
+            if (QWidget* modal = QApplication::activeModalWidget())
+                modal->close();
+        });
+        modalGuard2.start(100);
+
+        processBatch->click();
+        if (!batchDone) {
+            QTimer::singleShot(120000, &batchLoop, &QEventLoop::quit);
+            batchLoop.exec();
+        }
+        modalGuard2.stop();
+        spin();
+
+        CHECK(batchDone, "caso12: o lote termina");
+        CHECK(QFile::exists(batchOut + "/a_rembg.png"),
+              "caso12: o ficheiro processado existe");
+        if (log) {
+            CHECK(log->toPlainText().contains("[OK]"),
+                  "caso12: o log regista a imagem processada");
+        }
+    } else if (!hasModel) {
+        std::printf("SKIP: sem modelo, o lote completo nao e testado\n");
+    }
+
     window.close();
     spin();
 

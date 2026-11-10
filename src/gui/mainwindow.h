@@ -11,6 +11,7 @@
 #include "backgroundremover.h"
 #include "batchplan.h"
 #include "processingoptions.h"
+#include "inferenceworker.h"
 
 class QLabel;
 class QScrollArea;
@@ -34,6 +35,9 @@ class QVBoxLayout;
 class QStackedWidget;
 class MaskEditCanvas;
 class ModelManagerWidget;
+class PreviewInspector;
+class InferenceWorker;
+class BatchTabController;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -41,12 +45,6 @@ public:
     // Sessao ONNX partilhada entre a GUI e as threads de trabalho.
     // O acesso e protegido por mutex porque o modelo e carregado
     // dentro da thread de inferencia (para nao bloquear a janela).
-    struct ModelCache {
-        QMutex mutex;
-        std::shared_ptr<BackgroundRemover> remover;
-        QString loadedPath;
-    };
-
     explicit MainWindow(QWidget* parent = nullptr,
                         const QString& modelPath = "");
 
@@ -70,16 +68,11 @@ protected:
 
 private slots:
     void openImage();
-    void onRemoveFinished();
+    void onRemoveFinished(const InferenceResult& result);
     void saveResult();
     void copyResult();
     void copyTransparentResult();
     void loadModel();
-    void selectFolder();
-    void selectOutputFolder();
-    void processBatch();
-    void processBatchStep();
-    void onBatchStepFinished();
     void modelIndexChanged(int index);
     void bgColorChanged(int index);
     void editingDone();
@@ -96,12 +89,6 @@ private slots:
     void removeByColor();
 
 private:
-    struct SingleResult {
-        QImage image;
-        QString error;
-        quint64 generation = 0;
-    };
-
     void updateKeyColorButton();
     void setPreviewZoom(int percent);
     void zoomAt(int percent, const QPoint& globalPos);
@@ -110,7 +97,6 @@ private:
     void setResult(const QImage& img);
     void updateResultDisplay();
     void setUiBusy(bool busy);
-    void finishBatch();
     // Fecha a janela depois de a inferencia/lote em curso terminar.
     void maybeCloseAfterJobs();
     void resetModel();
@@ -118,7 +104,6 @@ private:
     void restoreSettings();
     void saveSettings();
     void checkForUpdate();
-    QWidget* createBatchTab();
     QWidget* createEmptyStateWidget();
     void updateWorkspaceStack();
     QVBoxLayout* workspaceLayout();
@@ -128,15 +113,6 @@ private:
     bool saveFormatIsAlphaCapable() const;
     ProcessingOptions currentProcessingOptions() const;
     QColor currentBackgroundColor() const;
-
-    // Carrega (ou reutiliza) a sessao ONNX do modelo indicado.
-    // Devolve nullptr se o modelo nao existir ou for invalido; nesse
-    // caso errorMessage recebe o motivo, para a GUI poder mostrar uma
-    // mensagem util em vez de abortar.
-    static std::shared_ptr<BackgroundRemover> obtainRemover(
-        const std::shared_ptr<ModelCache>& cache,
-        const QString& modelPath,
-        QString* errorMessage = nullptr);
 
     QStackedWidget* workspaceStack_ = nullptr;
     QWidget* dropZoneWidget_ = nullptr;
@@ -149,8 +125,6 @@ private:
     QScrollArea* resultScroll_;
     QComboBox* modelCombo_;
     QLineEdit* modelPathEdit_;
-    QLineEdit* folderEdit_;
-    QLineEdit* outputDirEdit_;
     QPushButton* btnOpen_;
     QPushButton* btnThemeToggle_;
     QComboBox* langCombo_;
@@ -160,9 +134,6 @@ private:
     QPushButton* btnCopyTransparent_;
     QAction* actCopyTransparent_;
     QPushButton* btnLoadModel_;
-    QPushButton* btnSelectFolder_;
-    QPushButton* btnSelectOutput_;
-    QPushButton* btnProcessBatch_;
     QPushButton* btnUndo_;
     QPushButton* btnRedo_;
     QPushButton* btnAutoCrop_;
@@ -196,16 +167,6 @@ private:
     QTabWidget* mainTabs_;
     ModelManagerWidget* modelManager_;
 
-    QString batchFolder_;
-    QString batchOutputDir_;
-    QString batchOutputExtension_;
-    QList<BatchPlan::Entry> batchPlan_;
-    ProcessingOptions batchOptions_;
-    int batchIndex_;
-    int batchOk_;
-    int batchErrors_;
-    bool batchRunning_;
-    bool batchCancelRequested_;
     // Verdadeiro enquanto uma inferencia ou lote esta em curso. Os
     // botoes sao desativados, mas os atalhos tambem precisam de ser
     // bloqueados para nao salvar/copiar um resultado antigo.
@@ -214,7 +175,6 @@ private:
     // fecho e concluido quando o watcher correspondente terminar.
     bool closeRequested_ = false;
     QColor customBgColor_;
-    int previewZoomPercent_;
     bool showMaskPreview_ = false;
     QAction *actionShowMaskPreview_ = nullptr;
 
@@ -224,11 +184,16 @@ private:
     // Muda sempre que uma imagem nova e carregada; resultados de
     // inferencias antigas sao descartados em onRemoveFinished().
     quint64 imageGeneration_ = 0;
+    // Inferencia em thread de trabalho (cache do modelo + ONNX).
+    InferenceWorker* inference_ = nullptr;
     std::shared_ptr<ModelCache> modelCache_;
     QNetworkAccessManager* updateNam_ = nullptr;
     QString latestRemoteVersion_;
-    QFutureWatcher<SingleResult> removeWatcher_;
-    QFutureWatcher<QString> batchWatcher_;
+    // Pre-visualizacao e zoom: imagens (original/resultado) e logica de
+    // escala/ancoragem do zoom.
+    PreviewInspector* preview_ = nullptr;
+    // Aba "Lote": pastas, plano e processamento em serie.
+    BatchTabController* batch_ = nullptr;
 };
 
 #endif

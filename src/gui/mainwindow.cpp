@@ -1,6 +1,9 @@
 #include "mainwindow.h"
 #include "i18n.h"
 #include "maskeditcanvas.h"
+#include "previewinspector.h"
+#include "inferenceworker.h"
+#include "batchtabcontroller.h"
 #include "helpwidget.h"
 #include "collapsiblesection.h"
 #include "imagepostprocessor.h"
@@ -126,8 +129,6 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       resultScroll_(new QScrollArea),
       modelCombo_(new QComboBox),
       modelPathEdit_(new QLineEdit),
-      folderEdit_(new QLineEdit),
-      outputDirEdit_(new QLineEdit("./_rembg")),
       btnOpen_(new QPushButton(TR("Abrir imagem", "Open image"))),
       btnThemeToggle_(new QPushButton),
       btnRemove_(new QPushButton(TR("Remover fundo", "Remove background"))),
@@ -136,9 +137,6 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       btnCopyTransparent_(new QPushButton),
       actCopyTransparent_(new QAction(this)),
       btnLoadModel_(new QPushButton(TR("Buscar...", "Browse..."))),
-      btnSelectFolder_(new QPushButton("...")),
-      btnSelectOutput_(new QPushButton("...")),
-      btnProcessBatch_(new QPushButton(TR("Processar lote", "Process batch"))),
       btnUndo_(new QPushButton(TR("Desfazer", "Undo"))),
       btnRedo_(new QPushButton(TR("Refazer", "Redo"))),
       btnAutoCrop_(new QPushButton(TR("Auto-Recorte", "Auto-Crop"))),
@@ -168,15 +166,12 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       logEdit_(new QPlainTextEdit),
       maskEditCanvas_(new MaskEditCanvas(this)),
       zoomDebounce_(new QTimer(this)),
-      batchIndex_(0),
-      batchOk_(0),
-      batchErrors_(0),
-      batchRunning_(false),
-      batchCancelRequested_(false),
       customBgColor_(QColor()),
-      previewZoomPercent_(100),
       // Ordem igual a da declaracao na classe (evita -Wreorder).
-      modelCache_(std::make_shared<ModelCache>())
+      preview_(new PreviewInspector(this)),
+      batch_(new BatchTabController(this)),
+      inference_(new InferenceWorker(this)),
+      modelCache_(inference_->cache())
 {
     originalLabel_->setAlignment(Qt::AlignCenter);
 
@@ -234,8 +229,6 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     btnDragOut_->setToolTip(TR("Clique e arraste para soltar o PNG no Photoshop, Telegram ou pasta",
                                "Click and drag to drop the PNG into Photoshop, Telegram or folder"));
 
-    outputDirEdit_->setReadOnly(true);
-
     progressBar_->setRange(0, 100);
     progressBar_->setValue(0);
     progressBar_->setVisible(false);
@@ -251,8 +244,6 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     originalLabel_->setObjectName("originalPreview");
     modelCombo_->setObjectName("modelCombo");
     modelPathEdit_->setObjectName("modelPath");
-    folderEdit_->setObjectName("batchInput");
-    outputDirEdit_->setObjectName("batchOutput");
     saveFormatCombo_->setObjectName("saveFormatCombo");
     presetCombo_->setObjectName("presetCombo");
     bgColorCombo_->setObjectName("bgColorCombo");
@@ -276,9 +267,11 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     maskEditCanvas_->setAccessibleDescription(
         TR("Clique para restaurar ou apagar areas da máscara.",
            "Click to restore or erase areas of the mask."));
+    // O inspector recebe os widgets ja construidos.
+    preview_->init(originalLabel_, zoomLabel_, originalScroll_, resultScroll_,
+                   maskEditCanvas_, workspaceStack_, imageStatusLabel_);
     brushModeCombo_->setAccessibleName(TR("Modo do pincel", "Brush mode"));
     brushRadiusSpin_->setAccessibleName(TR("Raio do pincel", "Brush radius"));
-    btnProcessBatch_->setObjectName("processBatchButton");
     btnUndo_->setObjectName("undoButton");
     btnRedo_->setObjectName("redoButton");
 
@@ -396,7 +389,7 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     connect(btnCompare, &QPushButton::toggled, this,
             [this](bool on) {
         maskEditCanvas_->setCompareEnabled(on);
-        maskEditCanvas_->setCompareImage(originalImage_);
+        maskEditCanvas_->setCompareImage(preview_->originalImage());
         logEdit_->appendPlainText(on
             ? "[INFO] " + TR("Comparacao antes/depois ativada.",
                              "Before/after comparison enabled.")
@@ -631,7 +624,32 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     mainTabs_ = new QTabWidget;
     mainTabs_->setObjectName("mainTabs");
     mainTabs_->addTab(contentSplitter, TR("Editor", "Editor"));
-    mainTabs_->addTab(createBatchTab(), TR("Lote", "Batch"));
+    {
+        // A aba do lote e controlada pelo BatchTabController; o log e
+        // a barra de progresso sao partilhados com a janela principal.
+        BatchTabController::Config batchConfig;
+        batchConfig.log = logEdit_;
+        batchConfig.progress = progressBar_;
+        batchConfig.modelCache = modelCache_;
+        batchConfig.optionsProvider = [this]() {
+            return currentProcessingOptions();
+        };
+        batchConfig.outputExtensionProvider = [this]() {
+            return saveFormatExtension();
+        };
+        batchConfig.outputFormatHasAlpha = [this]() {
+            return saveFormatIsAlphaCapable();
+        };
+        batch_->init(batchConfig);
+        connect(batch_, &BatchTabController::busyChanged,
+                this, &MainWindow::setUiBusy);
+        connect(batch_, &BatchTabController::finished,
+                this, [this](int, int) {
+            emit jobFinished();
+            maybeCloseAfterJobs();
+        });
+    }
+    mainTabs_->addTab(batch_->createTab(), TR("Lote", "Batch"));
     modelManager_ = new ModelManagerWidget(this);
     mainTabs_->addTab(modelManager_, TR("Modelos", "Models"));
     mainTabs_->addTab(new HelpWidget(this), TR("Ajuda", "Help"));
@@ -647,10 +665,10 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     mainLayout_->addWidget(progressBar_);
     mainLayout_->addWidget(mainTabs_, 1);
     connect(zoomOutButton, &QPushButton::clicked, this, [this]() {
-        setPreviewZoom(previewZoomPercent_ - 25);
+        setPreviewZoom(preview_->previewZoomPercent() - 25);
     });
     connect(zoomInButton, &QPushButton::clicked, this, [this]() {
-        setPreviewZoom(previewZoomPercent_ + 25);
+        setPreviewZoom(preview_->previewZoomPercent() + 25);
     });
     connect(fitButton, &QPushButton::clicked, this, [this]() {
         setPreviewZoom(100);
@@ -691,12 +709,6 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
             this,              &MainWindow::onSaveFormatChanged);
     connect(btnLoadModel_,     &QPushButton::clicked,
             this,              &MainWindow::loadModel);
-    connect(btnSelectFolder_,  &QPushButton::clicked,
-            this,              &MainWindow::selectFolder);
-    connect(btnSelectOutput_,  &QPushButton::clicked,
-            this,              &MainWindow::selectOutputFolder);
-    connect(btnProcessBatch_,  &QPushButton::clicked,
-            this,              &MainWindow::processBatch);
     connect(btnUndo_,          &QPushButton::clicked,
             this,              [this]() {
         if (!isBusy_) maskEditCanvas_->undo();
@@ -741,10 +753,8 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
             this,              &MainWindow::removeByColor);
 
     // A inferencia corre numa thread; o resultado volta pelo watcher.
-    connect(&removeWatcher_, &QFutureWatcher<SingleResult>::finished,
-            this,            &MainWindow::onRemoveFinished);
-    connect(&batchWatcher_,  &QFutureWatcher<QString>::finished,
-            this,            &MainWindow::onBatchStepFinished);
+    connect(inference_, &InferenceWorker::finished,
+            this,       &MainWindow::onRemoveFinished);
 
     // Atalhos de teclado.
     auto* scOpen = new QShortcut(QKeySequence::Open, this);
@@ -769,13 +779,13 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     });
     auto* scZoomIn = new QShortcut(QKeySequence("Ctrl++"), this);
     connect(scZoomIn, &QShortcut::activated, this,
-            [this]() { setPreviewZoom(previewZoomPercent_ + 25); });
+            [this]() { setPreviewZoom(preview_->previewZoomPercent() + 25); });
     auto* scZoomInEq = new QShortcut(QKeySequence("Ctrl+="), this);
     connect(scZoomInEq, &QShortcut::activated, this,
-            [this]() { setPreviewZoom(previewZoomPercent_ + 25); });
+            [this]() { setPreviewZoom(preview_->previewZoomPercent() + 25); });
     auto* scZoomOut = new QShortcut(QKeySequence("Ctrl+-"), this);
     connect(scZoomOut, &QShortcut::activated, this,
-            [this]() { setPreviewZoom(previewZoomPercent_ - 25); });
+            [this]() { setPreviewZoom(preview_->previewZoomPercent() - 25); });
     auto* scFit = new QShortcut(QKeySequence("Ctrl+0"), this);
     connect(scFit, &QShortcut::activated, this,
             [this]() { setPreviewZoom(100); });
@@ -916,106 +926,9 @@ QWidget* MainWindow::createEmptyStateWidget()
     return container;
 }
 
-QWidget* MainWindow::createBatchTab()
-{
-    auto* tab = new QWidget;
-    auto* layout = new QVBoxLayout(tab);
-    layout->setContentsMargins(20, 20, 20, 20);
-    layout->setSpacing(16);
-
-    auto* headerBox = new QVBoxLayout;
-    headerBox->setSpacing(4);
-    auto* title = new QLabel(TR("Processamento em Lote", "Batch Processing"));
-    title->setObjectName("batchPageTitle");
-    auto* desc = new QLabel(TR(
-        "Processe pastas inteiras de imagens sem bloquear o computador. As imagens recortadas são salvas automaticamente.",
-        "Process entire folders of images without freezing your computer. Cutout images are saved automatically."));
-    desc->setObjectName("batchPageSubtitle");
-    desc->setWordWrap(true);
-    headerBox->addWidget(title);
-    headerBox->addWidget(desc);
-    layout->addLayout(headerBox);
-
-    auto* foldersCard = new QFrame;
-    foldersCard->setObjectName("batchCard");
-    auto* foldersLayout = new QFormLayout(foldersCard);
-    foldersLayout->setContentsMargins(18, 16, 18, 16);
-    foldersLayout->setSpacing(12);
-    foldersLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
-
-    auto* inRow = new QHBoxLayout;
-    folderEdit_->setObjectName("batchInput");
-    folderEdit_->setPlaceholderText(
-        TR("Selecione ou arraste uma pasta com imagens...", "Select or drop a folder with images..."));
-    inRow->addWidget(folderEdit_, 1);
-    btnSelectFolder_->setText(TR("Escolher pasta...", "Choose folder..."));
-    inRow->addWidget(btnSelectFolder_);
-    foldersLayout->addRow(TR("Pasta de origem:", "Source folder:"), inRow);
-
-    auto* outRow = new QHBoxLayout;
-    outputDirEdit_->setObjectName("batchOutput");
-    outRow->addWidget(outputDirEdit_, 1);
-    btnSelectOutput_->setText(TR("Salvar em...", "Save to..."));
-    outRow->addWidget(btnSelectOutput_);
-    foldersLayout->addRow(TR("Pasta de destino:", "Destination folder:"), outRow);
-
-    layout->addWidget(foldersCard);
-
-    auto* actionCard = new QFrame;
-    actionCard->setObjectName("batchCard");
-    auto* actionLayout = new QVBoxLayout(actionCard);
-    actionLayout->setContentsMargins(18, 16, 18, 16);
-    actionLayout->setSpacing(12);
-
-    auto* actionRow = new QHBoxLayout;
-    btnProcessBatch_->setObjectName("processBatchButton");
-    btnProcessBatch_->setMinimumHeight(38);
-    actionRow->addWidget(btnProcessBatch_, 0);
-    actionRow->addStretch();
-    actionLayout->addLayout(actionRow);
-
-    layout->addWidget(actionCard);
-
-    auto* logHeaderRow = new QHBoxLayout;
-    auto* btnToggleBatchLog = new QPushButton(TR("Mostrar log de processamento \u25be",
-                                                 "Show processing log \u25be"));
-    btnToggleBatchLog->setObjectName("batchLogToggle");
-    logHeaderRow->addWidget(btnToggleBatchLog);
-    logHeaderRow->addStretch();
-    layout->addLayout(logHeaderRow);
-
-    logEdit_->setObjectName("logEdit");
-    layout->addWidget(logEdit_, 1);
-
-    connect(btnToggleBatchLog, &QPushButton::clicked, this, [this, btnToggleBatchLog]() {
-        bool nowVisible = !logEdit_->isVisible();
-        logEdit_->setVisible(nowVisible);
-        btnToggleBatchLog->setText(nowVisible
-            ? TR("Esconder log de processamento \u25b4", "Hide processing log \u25b4")
-            : TR("Mostrar log de processamento \u25be", "Show processing log \u25be"));
-    });
-
-    layout->addStretch();
-    return tab;
-}
-
 void MainWindow::updateWorkspaceStack()
 {
-    if (!workspaceStack_) return;
-    const bool hasImage = !originalImage_.isNull();
-    workspaceStack_->setCurrentIndex(hasImage ? 1 : 0);
-    if (imageStatusLabel_) {
-        if (hasImage) {
-            imageStatusLabel_->setText(
-                QString("%1 \u00d7 %2 px \u2022 Zoom %3%")
-                    .arg(originalImage_.width())
-                    .arg(originalImage_.height())
-                    .arg(previewZoomPercent_));
-        } else {
-            imageStatusLabel_->setText(
-                TR("Nenhuma imagem selecionada", "No image selected"));
-        }
-    }
+    preview_->updateWorkspaceStack();
 }
 
 void MainWindow::editingDone()
@@ -1024,7 +937,7 @@ void MainWindow::editingDone()
     // assim, ignorar edicoes evita substituir o resultado antigo por
     // engano caso algum evento chegue fora de tempo.
     if (isBusy_) return;
-    resultImage_ = maskEditCanvas_->getEditedImage();
+    preview_->setResult(maskEditCanvas_->getEditedImage());
     updateResultDisplay();
 }
 
@@ -1036,87 +949,25 @@ void MainWindow::resizeEvent(QResizeEvent* event)
 
 void MainWindow::setPreviewZoom(int percent)
 {
-    previewZoomPercent_ = qBound(50, percent, 400);
-    zoomLabel_->setText(QString::number(previewZoomPercent_) + "%");
-    updatePreviewZoom();
-    updateWorkspaceStack();
+    preview_->setPreviewZoom(percent);
 }
 
 void MainWindow::zoomAt(int percent, const QPoint& globalPos)
 {
-    if (resultImage_.isNull()) return;
-
-    const QWidget* canvas = maskEditCanvas_;
-    const QPoint canvasPos = canvas->mapFromGlobal(globalPos);
-    const bool overCanvas =
-        canvasPos.x() >= 0 && canvasPos.y() >= 0
-        && canvasPos.x() < canvas->width()
-        && canvasPos.y() < canvas->height();
-    if (!overCanvas) {
-        // Cursor fora do resultado: zoom sem ancoragem.
-        setPreviewZoom(percent);
-        return;
-    }
-
-    const QSize imageSize = resultImage_.size();
-    const double oldScale =
-        double(canvas->width()) / imageSize.width();
-    setPreviewZoom(percent);
-    const double newScale =
-        double(maskEditCanvas_->width()) / imageSize.width();
-    if (qFuzzyCompare(oldScale, newScale)) return;
-
-    // Mantem o mesmo pixel da imagem sob o cursor: ajusta as barras
-    // de rolagem para a nova escala.
-    const QPointF imgPt(canvasPos.x() / oldScale,
-                        canvasPos.y() / oldScale);
-    const QPoint viewportPos =
-        resultScroll_->viewport()->mapFromGlobal(globalPos);
-    const QPoint target(
-        static_cast<int>(imgPt.x() * newScale) - viewportPos.x(),
-        static_cast<int>(imgPt.y() * newScale) - viewportPos.y());
-
-    // Os limites das barras atualizam-se apos o resize; agenda o
-    // ajuste para o proximo ciclo de eventos.
-    QScrollBar* h = resultScroll_->horizontalScrollBar();
-    QScrollBar* v = resultScroll_->verticalScrollBar();
-    QTimer::singleShot(0, this, [h, v, target]() {
-        h->setValue(target.x());
-        v->setValue(target.y());
-    });
+    preview_->zoomAt(percent, globalPos);
 }
 
 void MainWindow::updatePreviewZoom()
 {
-    if (originalImage_.isNull()) return;
-
-    // O painel Original e referencia fixa: fica sempre ajustado ao
-    // espaco disponivel, independentemente do zoom.
-    const QSize originalViewport = originalScroll_->viewport()->size();
-    if (originalViewport.isEmpty()) return;
-    const QSize fittedOriginal = originalImage_.size().scaled(
-        originalViewport, Qt::KeepAspectRatio);
-    originalLabel_->setPixmap(QPixmap::fromImage(originalImage_).scaled(
-        fittedOriginal, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    originalLabel_->resize(fittedOriginal);
-
-    // O zoom (botoes, Ctrl+/- e Ctrl+roda) aplica-se so ao Resultado,
-    // que e a area de trabalho.
-    if (resultImage_.isNull()) return;
-    const QSize resultViewport = resultScroll_->viewport()->size();
-    if (resultViewport.isEmpty()) return;
-    const QSize fittedResult = resultImage_.size().scaled(
-        resultViewport, Qt::KeepAspectRatio);
-    const QSize resultDisplay = fittedResult * previewZoomPercent_ / 100;
-    maskEditCanvas_->setDisplaySize(resultDisplay);
+    preview_->updatePreviewZoom();
 }
 
 void MainWindow::openImage() {
     if (isBusy_) return;
     const QString path = QFileDialog::getOpenFileName(
         this, TR("Abrir imagem", "Open image"),
-        !folderEdit_->text().isEmpty()
-            ? folderEdit_->text() : QDir::homePath(),
+        !batch_->folderEdit()->text().isEmpty()
+            ? batch_->folderEdit()->text() : QDir::homePath(),
         TR("Imagens (*.png *.jpg *.jpeg *.bmp *.webp *.tiff)",
            "Images (*.png *.jpg *.jpeg *.bmp *.webp *.tiff)"));
     if (path.isEmpty()) return;
@@ -1133,10 +984,10 @@ void MainWindow::openPath(const QString& path) {
         return;
     }
     ++imageGeneration_;
-    resultImage_ = QImage();
+    preview_->clearResult();
     btnAutoCrop_->setEnabled(false);
     btnDragOut_->setEnabled(false);
-    originalImage_ = img;
+    preview_->setOriginal(img);
     currentImagePath_ = path;
     imageNameLabel_->setText(QFileInfo(path).fileName());
     // O canvas do resultado e limpo por completo: sem isto, Salvar e
@@ -1145,7 +996,6 @@ void MainWindow::openPath(const QString& path) {
     // Se o modo Comparar estiver ativo, o lado "antes" passa a ser a
     // imagem recem-aberta.
     maskEditCanvas_->setCompareImage(img);
-    setOriginal(img);
     keyColor_ = ImagePostProcessor::detectCornerColor(img);
     updateKeyColorButton();
     btnAutoDetectKeyColor_->setEnabled(true);
@@ -1189,7 +1039,7 @@ void MainWindow::modelIndexChanged(int index) {
                 // pré-carregamento usava outra cache (a estatica de
                 // BackgroundRemover::get) e destruia a sessao no fim,
                 // obrigando a ler o modelo outra vez na inferencia.
-                (void)obtainRemover(cache, path);
+                (void)InferenceWorker::obtainRemover(cache, path, nullptr);
             } catch (const std::exception&) {
                 // Log silencioso; o erro sera mostrado na inferencia.
             }
@@ -1228,18 +1078,18 @@ void MainWindow::bgColorChanged(int index) {
             bgColorCombo_->setCurrentIndex(0);
         }
     }
-    if (!resultImage_.isNull()) {
+    if (!preview_->resultImage().isNull()) {
         maskEditCanvas_->setBackgroundColor(currentBackgroundColor());
     }
 }
 
 void MainWindow::removeBackground() {
-    if (originalImage_.isNull()) {
+    if (preview_->originalImage().isNull()) {
         QMessageBox::warning(this, TR("Aviso", "Warning"),
             TR("Abra uma imagem primeiro.", "Open an image first."));
         return;
     }
-    if (removeWatcher_.isRunning()) {
+    if (inference_->isRunning()) {
         // O modelo e carregado na thread de trabalho: enquanto nao
         // houver sessao na cache nao ha o que cancelar.
         std::shared_ptr<BackgroundRemover> remover;
@@ -1250,14 +1100,14 @@ void MainWindow::removeBackground() {
                 remover = modelCache_->remover;
         }
         if (remover) {
-            remover->requestCancel();
+            inference_->cancel();
             logEdit_->appendPlainText("[INFO] " + TR("Cancelamento solicitado.", "Cancellation requested."));
         } else {
             logEdit_->appendPlainText("[INFO] " + TR("A carregar o modelo...", "Loading the model..."));
         }
         return;
     }
-    if (batchWatcher_.isRunning()) return;
+    if (batch_->isRunning()) return;
 
     // A inferencia corre numa thread de trabalho: a janela continua
     // reativa e o modelo e carregado la dentro (pode demorar segundos).
@@ -1273,71 +1123,25 @@ void MainWindow::removeBackground() {
     // manter a mascara transparente permite continuar editando-a.
     options.backgroundColor = QColor();
 
-    // Mensagens traduzidas na GUI antes da thread: I18n le QSettings,
-    // que nao deve ser usado fora da thread principal.
-    const QString errModel = TR("modelo indisponível",
-                                "model unavailable");
-    const QString errOnnx = TR("Erro ONNX: ", "ONNX error: ");
-    const QString errGeneric = TR("Falha: ", "Failure: ");
-    const QString errUnknown = TR("Erro desconhecido durante a inferência.",
-                                  "Unknown error during inference.");
-    const QString errCancelled = TR("Inferência cancelada pelo usuário.",
-                                    "Inference cancelled by user.");
-
     // Se outra imagem for aberta durante a inferencia, este numero
     // muda e o resultado antigo e descartado ao chegar.
     const quint64 generation = imageGeneration_;
 
     // O modelo e carregado DENTRO da thread de trabalho: a janela nao
     // congela enquanto o ONNX le o ficheiro (176 MB no U2-Net). Se o
-    // modelo nao existir ou for invalido, obtainRemover devolve nullptr
-    // com o motivo e o erro volta pelo caminho normal (log + dialogo).
-    removeWatcher_.setFuture(QtConcurrent::run(
-        [cache = modelCache_, img = originalImage_, options,
-         generation, errModel, errOnnx, errGeneric, errUnknown, errCancelled]
-            -> SingleResult {
-            try {
-                QString modelError;
-                const std::shared_ptr<BackgroundRemover> remover =
-                    obtainRemover(cache, options.modelPath, &modelError);
-                if (!remover) {
-                    return { QImage(),
-                             modelError.isEmpty()
-                                 ? errModel
-                                 : errModel + QStringLiteral(": ") + modelError,
-                             generation };
-                }
-                return { ImagePostProcessor::apply(
-                             remover->removeBackground(img), options),
-                         QString(), generation };
-            } catch (const Ort::Exception& e) {
-                return { QImage(),
-                         errOnnx + QString::fromUtf8(e.what()),
-                         generation };
-            } catch (const std::exception& e) {
-                const QString msg = QString::fromUtf8(e.what());
-                if (msg.contains("cancelada", Qt::CaseInsensitive) || msg.contains("cancelled", Qt::CaseInsensitive)) {
-                    return { QImage(), errCancelled, generation };
-                }
-                return { QImage(),
-                         errGeneric + msg,
-                         generation };
-            } catch (...) {
-                // Uma excecao desconhecida nao pode escapar do
-                // QtConcurrent: result() voltaria a lancar na GUI.
-                return { QImage(), errUnknown, generation };
-            }
-        }));
+    // modelo nao existir ou for invalido, o worker devolve o erro e
+    // este chega pelo mesmo caminho (log + dialogo).
+    inference_->start(preview_->originalImage(), options,
+                      options.modelPath, generation);
 }
 
-void MainWindow::onRemoveFinished()
+void MainWindow::onRemoveFinished(const InferenceResult& res)
 {
     progressBar_->setVisible(false);
     progressBar_->setRange(0, 100);
     progressBar_->setValue(0);
     setUiBusy(false);
 
-    const SingleResult res = removeWatcher_.result();
     // A imagem pode ter sido trocada enquanto a inferencia corria.
     // Nunca aplicar o resultado antigo sobre a imagem nova.
     if (res.generation != imageGeneration_) {
@@ -1363,7 +1167,7 @@ void MainWindow::onRemoveFinished()
         maybeCloseAfterJobs();
         return;
     }
-    resultImage_ = res.image;
+    preview_->setResult(res.image);
     updateResultDisplay();
     btnAutoCrop_->setEnabled(true);
     btnDragOut_->setEnabled(true);
@@ -1375,7 +1179,7 @@ void MainWindow::onRemoveFinished()
 
 void MainWindow::saveResult() {
     if (isBusy_) return;
-    if (resultImage_.isNull()) {
+    if (preview_->resultImage().isNull()) {
         QMessageBox::warning(this, TR("Aviso", "Warning"),
             TR("Remova o fundo primeiro.", "Remove the background first."));
         return;
@@ -1431,7 +1235,7 @@ void MainWindow::saveResult() {
     }
 
     const QImage toSave = ImagePostProcessor::apply(
-        resultImage_, saveOptions, originalImage_);
+        preview_->resultImage(), saveOptions, preview_->originalImage());
 
     QImageWriter writer(path, fmt);
     if (extension == "png" && saveOptions.pngCompression >= 0) {
@@ -1483,14 +1287,14 @@ bool MainWindow::saveFormatIsAlphaCapable() const
 void MainWindow::copyResult()
 {
     if (isBusy_) return;
-    if (resultImage_.isNull()) {
+    if (preview_->resultImage().isNull()) {
         QMessageBox::warning(this, TR("Aviso", "Warning"),
             TR("Remova o fundo primeiro.", "Remove the background first."));
         return;
     }
     ProcessingOptions copyOptions = currentProcessingOptions();
     const QImage toCopy = ImagePostProcessor::apply(
-        resultImage_, copyOptions, originalImage_);
+        preview_->resultImage(), copyOptions, preview_->originalImage());
 
     QApplication::clipboard()->setImage(toCopy);
     logEdit_->appendPlainText(
@@ -1501,13 +1305,13 @@ void MainWindow::copyResult()
 void MainWindow::copyTransparentResult()
 {
     if (isBusy_) return;
-    if (resultImage_.isNull()) {
+    if (preview_->resultImage().isNull()) {
         QMessageBox::warning(this, TR("Aviso", "Warning"),
             TR("Remova o fundo primeiro.", "Remove the background first."));
         return;
     }
     // Use resultImage directly without applying background/blurring.
-    QImage img = resultImage_.convertToFormat(QImage::Format_RGBA8888);
+    QImage img = preview_->resultImage().convertToFormat(QImage::Format_RGBA8888);
 
     // Encode as PNG via QBuffer to guarantee PNG format.
     QByteArray pngData;
@@ -1652,33 +1456,6 @@ QVBoxLayout* MainWindow::workspaceLayout()
     return w ? qobject_cast<QVBoxLayout*>(w->layout()) : nullptr;
 }
 
-void MainWindow::selectFolder() {
-    if (isBusy_) return;
-    QString folder = QFileDialog::getExistingDirectory(
-        this, TR("Selecionar pasta com imagens",
-                 "Select folder with images"),
-        folderEdit_->text().isEmpty()
-            ? QDir::homePath() : folderEdit_->text());
-    if (folder.isEmpty()) return;
-    folderEdit_->setText(folder);
-    logEdit_->appendPlainText(
-        "[INFO] " + TR("Pasta selecionada: ", "Folder selected: ") + folder);
-}
-
-void MainWindow::selectOutputFolder() {
-    if (isBusy_) return;
-    QString folder = QFileDialog::getExistingDirectory(
-        this, TR("Selecionar diretorio de saida",
-                 "Select output directory"),
-        outputDirEdit_->text().isEmpty()
-            ? QDir::homePath() : outputDirEdit_->text());
-    if (folder.isEmpty()) return;
-    outputDirEdit_->setText(folder);
-    logEdit_->appendPlainText(
-        "[INFO] " + TR("Dir. de saida definido: ",
-                       "Output dir. set: ") + folder);
-}
-
 void MainWindow::setUiBusy(bool busy)
 {
     isBusy_ = busy;
@@ -1697,11 +1474,7 @@ void MainWindow::setUiBusy(bool busy)
     btnSave_->setEnabled(!busy);
     btnCopy_->setEnabled(!busy);
     btnCopyTransparent_->setEnabled(!busy);
-    btnSelectFolder_->setEnabled(!busy);
-    btnSelectOutput_->setEnabled(!busy);
-    btnProcessBatch_->setEnabled(!busy);
-    folderEdit_->setEnabled(!busy);
-    outputDirEdit_->setEnabled(!busy);
+    batch_->setBusy(busy);
     saveFormatCombo_->setEnabled(!busy);
     presetCombo_->setEnabled(!busy);
     bgColorCombo_->setEnabled(!busy);
@@ -1712,15 +1485,15 @@ void MainWindow::setUiBusy(bool busy)
     shadowCheckBox_->setEnabled(!busy);
     removalMethodCombo_->setEnabled(!busy);
     btnKeyColorSample_->setEnabled(!busy);
-    btnAutoDetectKeyColor_->setEnabled(!busy && !originalImage_.isNull());
+    btnAutoDetectKeyColor_->setEnabled(!busy && !preview_->originalImage().isNull());
     colorToleranceSpin_->setEnabled(!busy);
     colorContiguousCheckBox_->setEnabled(!busy);
     colorPixelArtCheckBox_->setEnabled(!busy);
-    btnRemoveByColor_->setEnabled(!busy && !originalImage_.isNull());
+    btnRemoveByColor_->setEnabled(!busy && !preview_->originalImage().isNull());
     brushModeCombo_->setEnabled(!busy);
     brushRadiusSpin_->setEnabled(!busy);
-    btnAutoCrop_->setEnabled(!busy && !resultImage_.isNull());
-    btnDragOut_->setEnabled(!busy && !resultImage_.isNull());
+    btnAutoCrop_->setEnabled(!busy && !preview_->resultImage().isNull());
+    btnDragOut_->setEnabled(!busy && !preview_->resultImage().isNull());
     maskEditCanvas_->setEnabled(!busy);
     btnUndo_->setEnabled(!busy && maskEditCanvas_->canUndo());
     btnRedo_->setEnabled(!busy && maskEditCanvas_->canRedo());
@@ -1731,51 +1504,7 @@ void MainWindow::resetModel()
     // O modelo pode estar em uso numa thread de trabalho; o mutex
     // protege e a copia shared_ptr do worker mantem a sessao viva
     // ate o passo terminar.
-    QMutexLocker lock(&modelCache_->mutex);
-    modelCache_->remover.reset();
-    modelCache_->loadedPath.clear();
-}
-
-std::shared_ptr<BackgroundRemover> MainWindow::obtainRemover(
-    const std::shared_ptr<ModelCache>& cache,
-    const QString& modelPath,
-    QString* errorMessage)
-{
-    if (errorMessage) errorMessage->clear();
-    if (!cache) return nullptr;
-    {
-        QMutexLocker lock(&cache->mutex);
-        if (cache->remover && cache->loadedPath == modelPath)
-            return cache->remover;
-    }
-
-    // Carrega fora do lock: a GUI pode chamar resetModel() enquanto o
-    // ONNX carrega (segundos) sem ficar bloqueada. Se outra thread
-    // carregar o mesmo modelo entretanto, reutiliza-se essa sessao.
-    // Ort::Session lanca Ort::Exception quando o ficheiro nao existe ou
-    // e invalido: sem este try/catch a exceciao escapava do slot da
-    // GUI e abortava a aplicacao (SIGABRT).
-    std::shared_ptr<BackgroundRemover> loaded;
-    try {
-        loaded = std::make_shared<BackgroundRemover>(modelPath);
-    } catch (const Ort::Exception& e) {
-        if (errorMessage)
-            *errorMessage = QString::fromUtf8(e.what());
-        return nullptr;
-    } catch (const std::exception& e) {
-        if (errorMessage)
-            *errorMessage = QString::fromUtf8(e.what());
-        return nullptr;
-    }
-
-    {
-        QMutexLocker lock(&cache->mutex);
-        if (cache->remover && cache->loadedPath == modelPath)
-            return cache->remover;
-        cache->remover = loaded;
-        cache->loadedPath = modelPath;
-    }
-    return loaded;
+    inference_->resetModel();
 }
 
 void MainWindow::populateModelCombo()
@@ -1840,8 +1569,8 @@ void MainWindow::restoreSettings()
         settings.value("ui/geometry").toByteArray();
     if (!geometry.isEmpty()) restoreGeometry(geometry);
 
-    folderEdit_->setText(settings.value("batch/inputDir").toString());
-    outputDirEdit_->setText(
+    batch_->folderEdit()->setText(settings.value("batch/inputDir").toString());
+    batch_->outputDirEdit()->setText(
         settings.value("batch/outputDir", "./_rembg").toString());
     brushRadiusSpin_->setValue(
         settings.value("brush/radius", 10).toInt());
@@ -1881,8 +1610,8 @@ void MainWindow::saveSettings()
 {
     QSettings settings("aletheia", "aletheia");
     settings.setValue("ui/geometry", saveGeometry());
-    settings.setValue("batch/inputDir", folderEdit_->text());
-    settings.setValue("batch/outputDir", outputDirEdit_->text());
+    settings.setValue("batch/inputDir", batch_->folderEdit()->text());
+    settings.setValue("batch/outputDir", batch_->outputDirEdit()->text());
     settings.setValue("brush/radius", brushRadiusSpin_->value());
     settings.setValue("options/refineEdges",
                       refineCheckBox_->isChecked());
@@ -1904,10 +1633,10 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
     // Cancelar o lote, mas deixar o passo em curso terminar: o
     // watcher ainda esta a usar o modelo e a imagem.
-    if (batchRunning_)
-        batchCancelRequested_ = true;
+    if (batch_->isRunning())
+        batch_->requestCancel();
 
-    if (removeWatcher_.isRunning() || batchWatcher_.isRunning()) {
+    if (inference_->isRunning() || batch_->isRunning()) {
         if (!closeRequested_) {
             closeRequested_ = true;
             logEdit_->appendPlainText("[INFO] " + TR(
@@ -1925,7 +1654,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
 void MainWindow::maybeCloseAfterJobs()
 {
     if (!closeRequested_) return;
-    if (removeWatcher_.isRunning() || batchWatcher_.isRunning()) return;
+    if (inference_->isRunning() || batch_->isRunning()) return;
 
     // O close() volta a entrar em closeEvent(); sem jobs pendentes
     // a janela fecha normalmente.
@@ -1966,7 +1695,7 @@ void MainWindow::dropEvent(QDropEvent* event)
     }
 
     if (!folder.isEmpty()) {
-        folderEdit_->setText(folder);
+        batch_->folderEdit()->setText(folder);
         mainTabs_->setCurrentIndex(1);
         logEdit_->appendPlainText(
             "[INFO] " + TR("Pasta de lote: ", "Batch folder: ") + folder);
@@ -1994,7 +1723,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         if (overPreview
             && wheel->modifiers().testFlag(Qt::ControlModifier)) {
             // Zoom ancorado no ponto sob o cursor.
-            zoomAt(previewZoomPercent_
+            zoomAt(preview_->previewZoomPercent()
                        + (wheel->angleDelta().y() > 0 ? 10 : -10),
                    wheel->globalPosition().toPoint());
             return true;
@@ -2003,229 +1732,26 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     return QMainWindow::eventFilter(watched, event);
 }
 
-void MainWindow::processBatch() {
-    // Em execucao: o botao funciona como "Cancelar lote".
-    if (batchRunning_) {
-        batchCancelRequested_ = true;
-        btnProcessBatch_->setEnabled(false);
-        logEdit_->appendPlainText("[BATCH] " + TR(
-            "Cancelamento solicitado; a terminar a imagem em curso...",
-            "Cancellation requested; finishing the current image..."));
-        return;
-    }
-    if (isBusy_ || removeWatcher_.isRunning()
-        || batchWatcher_.isRunning()) return;
-
-    if (folderEdit_->text().isEmpty()) {
-        QMessageBox::warning(this, TR("Aviso", "Warning"),
-            TR("Selecione uma pasta primeiro.",
-               "Select a folder first."));
-        return;
-    }
-    batchFolder_ = folderEdit_->text();
-    batchOutputDir_ = outputDirEdit_->text();
-
-    // O formato escolhido no painel tambem vale para o lote. Se o
-    // plugin nao existir (ex.: WebP no Linux), avisar antes de
-    // comecar em vez de falhar imagem a imagem.
-    batchOutputExtension_ = saveFormatExtension();
-    if (!QImageWriter::supportedImageFormats().contains(
-            batchOutputExtension_.toLatin1())) {
-        QMessageBox::warning(this, TR("Aviso", "Warning"),
-            TR("O formato %1 não é suportado nesta instalação do Qt "
-               "(no Linux instale o pacote "
-               "'qt6-image-formats-plugins').",
-               "Format %1 is not supported by this Qt installation "
-               "(on Linux install the 'qt6-image-formats-plugins' "
-               "package).")
-                .arg(batchOutputExtension_.toUpper()));
-        return;
-    }
-
-    // Planejamento compartilhado com o CLI (BatchPlan): filtragem
-    // case-insensitive e saidas que nao sobrescrevem ficheiros.
-    batchPlan_ = BatchPlan::build(
-        QDir(batchFolder_), QDir(batchOutputDir_),
-        batchOutputExtension_);
-    if (batchPlan_.isEmpty()) {
-        QMessageBox::warning(this, TR("Aviso", "Warning"),
-            TR("Nenhuma imagem encontrada na pasta.",
-               "No images found in the folder."));
-        return;
-    }
-
-    QDir outDir(batchOutputDir_);
-    if (!outDir.exists() && !outDir.mkpath(".")) {
-        QMessageBox::critical(this, TR("Erro", "Error"),
-            TR("Nao foi possivel criar diretorio de saida:\n",
-               "Could not create output directory:\n")
-                + batchOutputDir_);
-        return;
-    }
-
-    setUiBusy(true);
-    // O botao continua ativo, agora como Cancelar.
-    btnProcessBatch_->setEnabled(true);
-    btnProcessBatch_->setText(TR("Cancelar lote", "Cancel batch"));
-    progressBar_->setRange(0, batchPlan_.size());
-    progressBar_->setValue(0);
-    progressBar_->setVisible(true);
-    logEdit_->clear();
-    logEdit_->appendPlainText(
-        QString("[BATCH] %1 -> %2")
-            .arg(TR("Processando %1 arquivo(s)",
-                    "Processing %1 file(s)").arg(batchPlan_.size()))
-            .arg(batchOutputDir_));
-
-    batchIndex_ = 0;
-    batchOk_ = 0;
-    batchErrors_ = 0;
-    batchCancelRequested_ = false;
-    batchRunning_ = true;
-    batchOptions_ = currentProcessingOptions();
-    batchOptions_.outputFormat = saveFormatExtension();
-    // JPEG nao tem canal alfa: compor sobre branco quando o fundo
-    // escolhido e transparente. PNG/WebP mantem o alfa.
-    if (!saveFormatIsAlphaCapable()
-        && !batchOptions_.backgroundColor.isValid()) {
-        batchOptions_.backgroundColor = Qt::white;
-    }
-
-    // O modelo e carregado dentro da thread de trabalho (obtainRemover
-    // no primeiro passo), por isso esta funcao nunca bloqueia a GUI.
-    QTimer::singleShot(0, this,
-                       &MainWindow::processBatchStep);
-}
-
-void MainWindow::processBatchStep() {
-    if (!batchRunning_) return;
-    if (batchCancelRequested_ || batchIndex_ >= batchPlan_.size()) {
-        finishBatch();
-        return;
-    }
-
-    const BatchPlan::Entry& entry = batchPlan_[batchIndex_];
-    const QString file = QFileInfo(entry.inputPath).fileName();
-    logEdit_->appendPlainText(
-        QString("[BATCH] %1/%2: %3")
-            .arg(batchIndex_ + 1).arg(batchPlan_.size()).arg(file));
-
-    // Mensagens de erro traduzidas na GUI antes da thread (I18n usa
-    // QSettings, que nao deve ser lido fora da thread principal).
-    const QString errLoad = TR("Falha ao carregar a imagem",
-                               "Failed to load the image");
-    const QString errSave = TR("Falha ao salvar a imagem",
-                               "Failed to save the image");
-    const QString errModel = TR("modelo indisponível",
-                                "model unavailable");
-    const QString errOnnx = TR("Erro ONNX: ", "ONNX error: ");
-    const QString errUnknown = TR("Erro desconhecido ao processar a imagem",
-                                  "Unknown error processing the image");
-
-    // Cada imagem corre na thread de trabalho; a GUI so recebe o
-    // resultado via watcher e agenda o passo seguinte.
-    batchWatcher_.setFuture(QtConcurrent::run(
-        [cache = modelCache_, options = batchOptions_,
-         in = entry.inputPath, out = entry.outputPath,
-         format = batchOutputExtension_,
-         errLoad, errSave, errModel, errOnnx, errUnknown]() -> QString {
-            try {
-                // setAutoTransform respeita a orientacao EXIF, como no
-                // CLI; sem isto fotos de telemovel saiam rodadas no lote.
-                const QImage img = ImagePostProcessor::loadImageExif(in);
-                if (img.isNull())
-                    return errLoad;
-                QString modelError;
-                const std::shared_ptr<BackgroundRemover> r =
-                    obtainRemover(cache, options.modelPath, &modelError);
-                if (!r) {
-                    return modelError.isEmpty()
-                        ? errModel
-                        : errModel + QStringLiteral(": ") + modelError;
-                }
-                const QImage processed = ImagePostProcessor::apply(
-                    r->removeBackground(img), options);
-                if (!processed.save(out, format.toUtf8().constData()))
-                    return errSave;
-                return QString();
-            } catch (const Ort::Exception& e) {
-                return errOnnx + QString::fromUtf8(e.what());
-            } catch (const std::exception& e) {
-                return QString::fromUtf8(e.what());
-            } catch (...) {
-                return errUnknown;
-            }
-        }));
-}
-
-void MainWindow::onBatchStepFinished()
-{
-    if (!batchRunning_) return;
-    const QString err = batchWatcher_.result();
-    const BatchPlan::Entry& entry = batchPlan_[batchIndex_];
-    const QString file = QFileInfo(entry.inputPath).fileName();
-    const QString outName = QFileInfo(entry.outputPath).fileName();
-
-    if (err.isEmpty()) {
-        ++batchOk_;
-        logEdit_->appendPlainText("[OK] " + file + " -> " + outName);
-    } else {
-        ++batchErrors_;
-        logEdit_->appendPlainText("[ERROR] " + file + ": " + err);
-    }
-    ++batchIndex_;
-    progressBar_->setValue(batchIndex_);
-    // Durante o fecho/cancelamento nao agendar mais imagens; fecha o
-    // lote e deixa maybeCloseAfterJobs() concluir o fecho.
-    if (batchCancelRequested_ || closeRequested_)
-        finishBatch();
-    else
-        QTimer::singleShot(0, this, &MainWindow::processBatchStep);
-}
-
-void MainWindow::finishBatch()
-{
-    batchRunning_ = false;
-    progressBar_->setValue(batchPlan_.size());
-    progressBar_->setVisible(false);
-    logEdit_->appendPlainText(
-        QString("[BATCH] %1: %2 OK, %3 erro(s).")
-            .arg(batchCancelRequested_
-                     ? TR("Cancelado", "Cancelled")
-                     : TR("Concluido", "Completed"))
-            .arg(batchOk_).arg(batchErrors_));
-    btnProcessBatch_->setText(TR("Processar lote", "Process batch"));
-    setUiBusy(false);
-    batchCancelRequested_ = false;
-    emit jobFinished();
-    maybeCloseAfterJobs();
-}
-
 void MainWindow::setOriginal(const QImage& img) {
-    Q_UNUSED(img)
-    // Troca primeiro para a area de edicao: o preview so tem tamanho
-    // util depois de o stack mostrar a pagina do editor.
-    updateWorkspaceStack();
-    updatePreviewZoom();
+    preview_->setOriginal(img);
 }
 
 void MainWindow::setResult(const QImage& img) {
-    Q_UNUSED(img)
-    updatePreviewZoom();
+    preview_->setResult(img);
 }
 
 void MainWindow::updateResultDisplay() {
-    if (resultImage_.isNull()) {
+    if (preview_->resultImage().isNull()) {
         maskEditCanvas_->setImage(QImage(), QColor());
         return;
     }
     if (showMaskPreview_) {
-        QImage maskImg = ImagePostProcessor::visualizeMask(resultImage_, true);
+        QImage maskImg = ImagePostProcessor::visualizeMask(preview_->resultImage(), true);
         maskEditCanvas_->setImage(maskImg, QColor());
         maskEditCanvas_->setEnabled(false);
     } else {
         maskEditCanvas_->setEnabled(true);
-        maskEditCanvas_->setImage(resultImage_, currentBackgroundColor());
+        maskEditCanvas_->setImage(preview_->resultImage(), currentBackgroundColor());
     }
     updatePreviewZoom();
 }
@@ -2237,10 +1763,10 @@ void MainWindow::pasteImageFromClipboard()
     const QImage img = clipboard->image();
     if (!img.isNull()) {
         ++imageGeneration_;
-        resultImage_ = QImage();
+        preview_->clearResult();
         btnAutoCrop_->setEnabled(false);
         btnDragOut_->setEnabled(false);
-        originalImage_ = img;
+        preview_->setOriginal(img);
         currentImagePath_.clear();
         imageNameLabel_->setText(TR("Colada da área de transferência",
                                     "Pasted from clipboard"));
@@ -2276,21 +1802,21 @@ void MainWindow::pasteImageFromClipboard()
 
 void MainWindow::autoCropResult()
 {
-    if (isBusy_ || resultImage_.isNull()) return;
+    if (isBusy_ || preview_->resultImage().isNull()) return;
 
-    const QImage cropped = ImagePostProcessor::autoCrop(resultImage_, 2);
-    if (cropped.size() == resultImage_.size()) {
+    const QImage cropped = ImagePostProcessor::autoCrop(preview_->resultImage(), 2);
+    if (cropped.size() == preview_->resultImage().size()) {
         logEdit_->appendPlainText("[INFO] " + TR("Nenhuma borda vazia para recortar.",
                                                 "No empty border to crop."));
         return;
     }
 
-    resultImage_ = cropped;
+    preview_->setResult(cropped);
     updateResultDisplay();
     logEdit_->appendPlainText(QString("[OK] %1: %2x%3")
         .arg(TR("Auto-recorte aplicado", "Auto-crop applied"))
-        .arg(resultImage_.width())
-        .arg(resultImage_.height()));
+        .arg(preview_->resultImage().width())
+        .arg(preview_->resultImage().height()));
 }
 
 void MainWindow::presetChanged(int index)
@@ -2355,14 +1881,14 @@ void MainWindow::presetChanged(int index)
         break;
     }
 
-    if (!resultImage_.isNull()) {
+    if (!preview_->resultImage().isNull()) {
         maskEditCanvas_->setBackgroundColor(currentBackgroundColor());
     }
 }
 
 void MainWindow::startDragOut()
 {
-    if (resultImage_.isNull()) return;
+    if (preview_->resultImage().isNull()) return;
 
     ProcessingOptions dragOptions = currentProcessingOptions();
     if (!saveFormatIsAlphaCapable()
@@ -2371,7 +1897,7 @@ void MainWindow::startDragOut()
         dragOptions.backgroundColor = Qt::white;
     }
     const QImage finalImage = ImagePostProcessor::apply(
-        resultImage_, dragOptions, originalImage_);
+        preview_->resultImage(), dragOptions, preview_->originalImage());
 
     const QString tempDir = QDir::tempPath();
     const QString baseName = currentImagePath_.isEmpty()
@@ -2426,8 +1952,8 @@ void MainWindow::pickKeyColor()
 
 void MainWindow::autoDetectKeyColor()
 {
-    if (originalImage_.isNull()) return;
-    keyColor_ = ImagePostProcessor::detectCornerColor(originalImage_);
+    if (preview_->originalImage().isNull()) return;
+    keyColor_ = ImagePostProcessor::detectCornerColor(preview_->originalImage());
     updateKeyColorButton();
     logEdit_->appendPlainText("[INFO] " + TR("Cor detectada dos cantos: ",
                                             "Corner color detected: ") + keyColor_.name().toUpper());
@@ -2435,7 +1961,7 @@ void MainWindow::autoDetectKeyColor()
 
 void MainWindow::removeByColor()
 {
-    if (originalImage_.isNull()) {
+    if (preview_->originalImage().isNull()) {
         QMessageBox::warning(this, TR("Aviso", "Warning"),
             TR("Abra uma imagem primeiro.", "Open an image first."));
         return;
@@ -2446,9 +1972,9 @@ void MainWindow::removeByColor()
     const bool pixelArt = colorPixelArtCheckBox_->isChecked();
 
     QImage removed = ImagePostProcessor::removeByColor(
-        originalImage_, keyColor_, tol, contiguous, pixelArt);
+        preview_->originalImage(), keyColor_, tol, contiguous, pixelArt);
 
-    resultImage_ = removed;
+    preview_->setResult(removed);
     updateResultDisplay();
     btnAutoCrop_->setEnabled(true);
     btnDragOut_->setEnabled(true);

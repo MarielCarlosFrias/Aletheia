@@ -16,7 +16,7 @@ Versao 1.2.2. Aplicacao desktop (Qt6) + CLI para remocao de fundo de imagens loc
 - `src/core/modelvalidator.h/.cpp` — Valida modelo instalado (tamanho + SHA256) sem carregar no ONNX.
 - `src/core/savepath.h` — Garante extensao de saida coerente com o formato.
 - `src/core/i18n.h` — I18n leve PT-BR/EN sem ferramentas externas (variavel de ambiente, QSettings, localidade do sistema). O idioma e detetado uma vez (cache estatico).
-- `src/gui/mainwindow.h/.cpp` — Janela principal: abas, drag&drop, processamento individual/lote, cache de modelo compartilhado (mutex), atualizacao, mascara manual, temas. O modelo e carregado na thread de trabalho.
+- `src/gui/mainwindow.h/.cpp` — Janela principal: abas, drag&drop, painel de opcoes, atualizacao, mascara manual, temas. O resto foi extraido: `previewinspector` (preview e zoom), `inferenceworker` (inferencia em thread + cache do modelo) e `batchtabcontroller` (aba do lote). O modelo e carregado na thread de trabalho.
 - `src/gui/maskeditcanvas.h/.cpp` — Edicao manual da mascara (pincel restaurar/apagar, desfazer/refazer com limite de bytes, comparacao antes/depois).
 - `src/gui/apptheme.h/.cpp` — Tema escuro/claro (Fusion + QSS), persistido em QSettings.
 - `src/gui/helpwidget.h/.cpp`, `src/gui/collapsiblesection.h/.cpp` — Widgets de ajuda e secoes colapsaveis.
@@ -56,7 +56,7 @@ GUI: utilizador carrega imagem (abre/arrasta/cola) -> escolhe modelo e opcoes ->
 6. `src/gui/mainwindow.cpp` — o cancelamento so tem efeito depois de o modelo estar carregado.
 7. `src/core/modelmanager.cpp` — os modelos sao descarregados de um repositorio de terceiros (o projeto nao publica releases proprias).
 8. `.github/workflows/release.yml` — os `SHA256SUMS` nao sao assinados (nem minisign/cosign) e o `linuxdeploy` so tem build "continuous" (verificado pelo `.zsync`, sem assinatura).
-9. `src/gui/mainwindow.cpp` — o refactor em controllers continua por fazer (2450 linhas).
+9. `src/gui/mainwindow.cpp` — o refactor em controllers comecou (preview, inferencia e lote ja sairam), mas a janela principal ainda tem ~1990 linhas; o resto (inspector de opcoes, barra de estado) ainda esta dentro dela.
 
 ## Ideias de melhoria
 

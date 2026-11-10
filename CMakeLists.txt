@@ -164,6 +164,12 @@ endif()
 add_library(aletheia_gui STATIC
     src/gui/mainwindow.cpp
     src/gui/mainwindow.h
+    src/gui/previewinspector.cpp
+    src/gui/previewinspector.h
+    src/gui/inferenceworker.cpp
+    src/gui/inferenceworker.h
+    src/gui/batchtabcontroller.cpp
+    src/gui/batchtabcontroller.h
     src/gui/maskeditcanvas.cpp
     src/gui/maskeditcanvas.h
     src/gui/helpwidget.cpp
