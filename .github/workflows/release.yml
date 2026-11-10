@@ -38,6 +38,8 @@ jobs:
       - run: cmake -S . -B build -G Ninja -DINSTALLED=ON -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON -DBG_REMOVER_BUNDLE_MODELS=ON
       - run: cmake --build build --parallel
       - name: Test
+        # Testar antes de empacotar: um binario que falha nos testes
+        # nao deve chegar ao AppImage publicado.
         run: |
           # A saida do ctest tambem vai para as anotacoes do job: sem
           # isso, um teste que falha so deixa "exit code 8" no log.
@@ -90,9 +92,6 @@ jobs:
             -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON \
             -DBG_REMOVER_BUNDLE_MODELS=ON
           cmake --build build --parallel
-      - name: Test
-        # Testar antes de empacotar: um binario que falha nos testes
-        # nao deve chegar ao AppImage publicado.
       - name: Test
         run: |
           # A saida do ctest tambem vai para as anotacoes do job: sem
