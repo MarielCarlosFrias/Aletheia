@@ -86,6 +86,14 @@ int main(int argc, char* argv[])
     CHECK(first.save(firstPath), "imagem de teste 1 criada");
     CHECK(second.save(secondPath), "imagem de teste 2 criada");
 
+    // Comecar de uma janela limpa: sem isto, as definicoes guardadas
+    // (de uma execucao anterior ou de outro teste) alteram o
+    // comportamento por omissao da interface.
+    {
+        QSettings appSettings("aletheia", "aletheia");
+        appSettings.clear();
+    }
+
     MainWindow window(nullptr, hasModel ? modelArg : QString());
     window.resize(1100, 720);
     window.show();
