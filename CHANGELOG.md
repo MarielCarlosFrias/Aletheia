@@ -4,6 +4,49 @@ Todas as alterações relevantes são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.3] - 2026-11-10
+
+### Corrigido
+
+- A visualização da máscara alfa (`Ctrl+M`) escrevia 4 bytes num buffer de
+  3 e corrompia a memória: a aplicação podia terminar com `SIGSEGV`.
+- A janela deixava de funcionar quando o modelo ONNX não existia
+  (utilizador novo, ou modelo apagado): a exceção do ONNX terminava o
+  processo com `SIGABRT`. O erro passa a ser apresentado na interface.
+- O CLI gravava JPEG dentro de ficheiros `.png` com `-f jpg`: a extensão
+  dos ficheiros segue agora o formato pedido e o JPEG é composto sobre
+  branco em vez de manter a cor original do fundo.
+
+### Melhorado
+
+- O modelo deixa de ser carregado na thread da interface: a janela já
+  não congela durante os ~2,2 s de leitura dos 176 MB do U²-Net.
+- O cancelamento da inferência já não pode usar memória libertada
+  (`use-after-free` no `Ort::RunOptions`).
+- O modelo deixou de ser re-calculado (SHA256) em cada imagem do lote.
+- O lote usa um pool fixo de threads (antes criava uma thread por
+  imagem) e ganhou a opção `-j/--jobs`.
+- Os testes usam uma biblioteca partilhada com a aplicação, em vez de
+  recompilar as fontes quatro vezes.
+- O pacote DEB passou a ter `postinst` (a biblioteca do ONNX Runtime
+  entra no cache do linker) e o teste de regressão visual deixou de
+  passar quando a baseline falta.
+- Todos os modelos do catálogo têm SHA256 publicado e a descarga é
+  verificada criptograficamente.
+- O CI passou a fixar as actions por SHA, a guardar cache do Qt e a
+  verificar a versão do projeto contra a tag.
+
+### Interface
+
+- Novo ícone da Aletheia (SVG, PNG e `.icns` do bundle macOS) e o
+  cabeçalho deixou de mostrar a letra "A" para mostrar o ícone.
+
+### Refatoração
+
+- A janela principal foi dividida: `PreviewInspector` (preview e zoom),
+  `InferenceWorker` (inferência e cache do modelo) e
+  `BatchTabController` (aba do lote).
+
 ## [1.2.2] - 2026-11-09
 
 ### Corrigido

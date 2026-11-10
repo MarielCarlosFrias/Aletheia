@@ -1,6 +1,6 @@
 # Analise do projeto Aletheia (bg-remover)
 
-Versao 1.2.2. Aplicacao desktop (Qt6) + CLI para remocao de fundo de imagens localmente, usando ONNX Runtime com modelos U2-Net/ISNet.
+Versao 1.2.3. Aplicacao desktop (Qt6) + CLI para remocao de fundo de imagens localmente, usando ONNX Runtime com modelos U2-Net/ISNet.
 
 ## Modulos principais
 
@@ -27,7 +27,7 @@ Versao 1.2.2. Aplicacao desktop (Qt6) + CLI para remocao de fundo de imagens loc
 
 GUI: utilizador carrega imagem (abre/arrasta/cola) -> escolhe modelo e opcoes -> `removeBackground` arranca a thread de trabalho, que carrega o modelo ONNX e devolve o resultado composto (RGBA) -> preview -> opcional edicao manual em `MaskEditCanvas` -> salva/copia. Lote: `MainWindow::processBatch` constroi o plano com `BatchPlan::build` e processa imagem a imagem. CLI: argumentos -> `BatchProcessor::processDirectory` -> uma sessao ONNX por lote -> saidas com a extensao do formato pedido.
 
-## Resolvido nesta serie (1.2.2 -> HEAD)
+## Resolvido nesta serie (1.2.3)
 
 1. **Crash ao mostrar a mascara alfa** — `visualizeMask` escrevia 4 bytes num buffer RGB888 de 3 (heap-buffer-overflow, SIGSEGV). Passou a escrever por bytes.
 2. **A GUI abortava (SIGABRT) quando o modelo nao existia** — a excecao do ONNX escapava do slot. `obtainRemover` devolve agora `nullptr` com o motivo e o erro aparece no log/dialogo.
