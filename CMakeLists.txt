@@ -130,6 +130,17 @@ if(WIN32 AND NOT EXISTS "${ONNX_RUNTIME_PROVIDER_LIBRARY}")
         "${ONNX_RUNTIME_PROVIDER_LIBRARY}")
 endif()
 
+# A biblioteca do ONNX Runtime vive fora da arvore de build: os
+# executaveis precisam do RPATH para a encontrar em tempo de execucao.
+# A propriedade num alvo estatico nao tem efeito no executavel final,
+# por isso e aplicada a cada executavel.
+function(aletheia_set_onnx_rpath target)
+    if(NOT WIN32)
+        set_target_properties(${target} PROPERTIES
+            BUILD_RPATH "${ONNX_DIR}/lib")
+    endif()
+endfunction()
+
 # Nucleo partilhado (sem widgets): usado pela aplicacao, pelo CLI e
 # pelos testes. Antes cada alvo de teste recompilava estas fontes
 # (4-5 vezes) e podia divergir do binario distribuido.
@@ -253,31 +264,37 @@ enable_testing()
 add_executable(test_postprocessing
     tests/test_postprocessing.cpp)
 target_link_libraries(test_postprocessing PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_postprocessing)
 add_test(NAME postprocessing_test COMMAND test_postprocessing)
 
 add_executable(test_batchplan
     tests/test_batchplan.cpp)
 target_link_libraries(test_batchplan PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_batchplan)
 add_test(NAME batchplan_test COMMAND test_batchplan)
 
 add_executable(test_modelpath
     tests/test_modelpath.cpp)
 target_link_libraries(test_modelpath PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_modelpath)
 add_test(NAME modelpath_test COMMAND test_modelpath)
 
 add_executable(test_modelvalidator
     tests/test_modelvalidator.cpp)
 target_link_libraries(test_modelvalidator PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_modelvalidator)
 add_test(NAME modelvalidator_test COMMAND test_modelvalidator)
 
 add_executable(test_savepath
     tests/test_savepath.cpp)
 target_link_libraries(test_savepath PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_savepath)
 add_test(NAME savepath_test COMMAND test_savepath)
 
 add_executable(test_imageformats
     tests/test_imageformats.cpp)
 target_link_libraries(test_imageformats PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_imageformats)
 add_test(NAME imageformats_test COMMAND test_imageformats)
 
 # Teste de fumo da GUI: constroi a janela real em modo offscreen,
@@ -287,6 +304,7 @@ add_test(NAME imageformats_test COMMAND test_imageformats)
 add_executable(test_gui
     tests/test_gui.cpp)
 target_link_libraries(test_gui PRIVATE aletheia_gui)
+aletheia_set_onnx_rpath(test_gui)
 # O icone do cabecalho vive no recurso Qt: sem ele a janela mostra
 # "qt.svg: Cannot open file ':/assets/aletheia.svg'".
 qt_add_resources(test_gui "aletheia_icon"
@@ -306,6 +324,7 @@ set_tests_properties(gui_test_en PROPERTIES
 add_executable(test_batchprocessor
     tests/test_batchprocessor.cpp)
 target_link_libraries(test_batchprocessor PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_batchprocessor)
 add_test(NAME batchprocessor_test
     COMMAND test_batchprocessor "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
@@ -316,6 +335,7 @@ endif()
 add_executable(test_inference
     tests/test_inference.cpp)
 target_link_libraries(test_inference PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_inference)
 add_test(NAME inference_test
     COMMAND test_inference "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
@@ -326,6 +346,7 @@ endif()
 add_executable(test_visual_regression
     tests/test_visual_regression.cpp)
 target_link_libraries(test_visual_regression PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_visual_regression)
 # O teste precisa de encontrar os assets de regressao visual sem
 # caminhos absolutos fixos.
 target_compile_definitions(test_visual_regression PRIVATE

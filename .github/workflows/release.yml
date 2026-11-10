@@ -93,7 +93,9 @@ jobs:
             if [ ! -f "/tmp/$name" ]; then
               wget -q "https://github.com/$repo/releases/download/continuous/$name" -O "/tmp/$name"
               wget -q "https://github.com/$repo/releases/download/continuous/$name.zsync" -O "/tmp/$name.zsync"
-              expected=$(grep -m1 -i '^SHA-1:' "/tmp/$name.zsync" | awk '{print $2}')
+              # O .zsync e binario ( alem do cabecalho tem os blocos de
+              # checksum): o grep precisa de -a para o ler.
+              expected=$(grep -a -m1 -i '^SHA-1:' "/tmp/$name.zsync" | awk '{print $2}')
               actual=$(sha1sum "/tmp/$name" | awk '{print $1}')
               if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
                 echo "ERRO: checksum invalido para $name (esperado $expected, obtido $actual)"
@@ -237,10 +239,15 @@ jobs:
     needs: [linux-deb, linux-appimage, windows-zip, macos-zip]
     permissions:
       contents: write
-    # Publica o que existir mesmo que um job falhe: uma falha isolada
-    # (ex.: AppImage) nao deve custar a release inteira. Foi o que
-    # aconteceu na v1.0.1, com DEB e ZIP prontos e nunca publicados.
-    if: ${{ always() && !cancelled() && contains(needs.*.result, 'success') }}
+    # Publica apenas quando TODOS os pacotes ficaram prontos. Com a
+    # regra anterior ("qualquer um com sucesso") a v1.2.3 foi publicada
+    # so com o DEB: quem usa macOS ou Windows nao encontrava nada.
+    # Os artefactos ficam sempre no CI, mesmo sem release.
+    if: ${{ always() && !cancelled()
+            && needs.linux-deb.result == 'success'
+            && needs.linux-appimage.result == 'success'
+            && needs.windows-zip.result == 'success'
+            && needs.macos-zip.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
