@@ -132,6 +132,37 @@ int main(int argc, char* argv[])
         badFormatProcessor.processDirectory(jpgDir, jpgDir);
     CHECK(badFormat.fatal, "caso4: formato invalido -> fatal");
 
+    // ---- Caso 5: processamento paralelo (-j) ----
+    // O lote usa um pool fixo de threads (antes criava uma thread por
+    // imagem). Com varias imagens em paralelo o resultado tem de ser
+    // o mesmo: todos os ficheiros processados, nenhum erro.
+    const QString parDir = tmp.path() + "/par";
+    QDir().mkpath(parDir);
+    for (int i = 0; i < 6; ++i) {
+        QImage img(60 + i * 5, 40 + i * 5, QImage::Format_RGB32);
+        img.fill(QColor(20 * i, 90, 200 - 10 * i));
+        CHECK(img.save(parDir + QString("/p_%1.png").arg(i), "PNG"),
+              "caso5: imagem paralela criada");
+    }
+    ProcessingOptions parOptions;
+    parOptions.modelPath = modelPath;
+    parOptions.maxConcurrentImages = 3;
+    BatchProcessor parProcessor(parOptions);
+    const BatchProcessor::Result par =
+        parProcessor.processDirectory(parDir, parDir);
+    CHECK(!par.fatal, "caso5: lote paralelo sem erro fatal");
+    CHECK(par.total == 6, "caso5: total = 6");
+    CHECK(par.ok == 6, "caso5: todas as imagens processadas em paralelo");
+    CHECK(par.errors == 0, "caso5: nenhum erro no lote paralelo");
+    for (int i = 0; i < 6; ++i) {
+        const QString out = parDir + QString("/p_%1_rembg.png").arg(i);
+        if (!QFile::exists(out)) {
+            std::printf("FALHOU: caso5: falta %s\n", qPrintable(out));
+            ++failures;
+        }
+    }
+    std::printf("OK: caso5: ficheiros de saida presentes\n");
+
     if (failures == 0)
         std::printf("Todos os testes do BatchProcessor passaram.\n");
     return failures == 0 ? 0 : 1;

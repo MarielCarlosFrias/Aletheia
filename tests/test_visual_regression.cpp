@@ -86,19 +86,31 @@ int main(int argc, char *argv[]) {
         hashTol = std::atoi(env2);
     }
 
-    QString baseDir = QCoreApplication::applicationDirPath();
-    // Tentar localizar assets relativo ao executável ou ao source
-    QString inputsDir = QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../assets/visual_regression/inputs");
-    QString refsDir   = QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../assets/visual_regression/refs");
-    if (!QDir(inputsDir).exists()) {
-        // fallback para source tree
-        inputsDir = QString("%1/../assets/visual_regression/inputs").arg(QCoreApplication::applicationDirPath());
-        refsDir   = QString("%1/../assets/visual_regression/refs").arg(QCoreApplication::applicationDirPath());
+    // Onde procurar os assets de regressao visual. A ordem e:
+    //   1. variavel de ambiente (util em CI ou para gerar baselines)
+    //   2. diretorio do source, passado na compilacao
+    //   3. caminho relativo ao executavel (build/ -> ../assets)
+    // Nao ha caminho absoluto fixo: o teste funciona noutra maquina.
+    QString root;
+    if (const char* env = std::getenv("ALETHEIA_VISUAL_REGRESSION_DIR")) {
+        root = QString::fromLocal8Bit(env);
     }
-    // Último fallback: caminho absoluto do source em build
+#ifdef ALETHEIA_SOURCE_DIR
+    if (root.isEmpty())
+        root = QStringLiteral(ALETHEIA_SOURCE_DIR);
+#endif
+    if (root.isEmpty())
+        root = QDir::cleanPath(
+            QCoreApplication::applicationDirPath() + "/..");
+
+    QString inputsDir = root + "/assets/visual_regression/inputs";
+    QString refsDir   = root + "/assets/visual_regression/refs";
     if (!QDir(inputsDir).exists()) {
-        inputsDir = "/home/theking1x/projetos/bg-remover/assets/visual_regression/inputs";
-        refsDir   = "/home/theking1x/projetos/bg-remover/assets/visual_regression/refs";
+        // Ultimo recurso: assets relativos ao executavel.
+        inputsDir = QDir::cleanPath(
+            QCoreApplication::applicationDirPath() + "/../assets/visual_regression/inputs");
+        refsDir = QDir::cleanPath(
+            QCoreApplication::applicationDirPath() + "/../assets/visual_regression/refs");
     }
 
     QDir inDir(inputsDir);
@@ -162,7 +174,19 @@ int main(int argc, char *argv[]) {
         }
 
         if (!refExists || refAlpha < 0) {
-            // Criar baseline
+            // Sem baseline nao ha regressao a medir: falhar e o
+            // comportamento correto. Criar a baseline e explicito
+            // (VISUAL_REGRESSION_UPDATE=1), senao uma baseline apagada
+            // passaria o teste em silencio.
+            const char* updateEnv = std::getenv("VISUAL_REGRESSION_UPDATE");
+            const bool update = updateEnv && std::atoi(updateEnv) == 1;
+            if (!update) {
+                std::cerr << "FAIL: Baseline em falta para " << baseName.toStdString()
+                          << " (" << refPath.toStdString() << "). Gere-a com "
+                             "VISUAL_REGRESSION_UPDATE=1." << std::endl;
+                allOk = false;
+                continue;
+            }
             if (refFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 QTextStream out(&refFile);
                 out << "avgAlpha=" << avgAlpha << "\n";

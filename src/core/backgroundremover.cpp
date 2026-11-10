@@ -3,9 +3,7 @@
 #include <QFileInfo>
 #include <QCryptographicHash>
 #include <QFile>
-#include <QSettings>
 #include <QDateTime>
-#include <QUrl>
 #include <cmath>
 #include <algorithm>
 #include <array>
@@ -19,9 +17,6 @@ static constexpr float STD[3]  = {0.229f, 0.224f, 0.225f};
 std::mutex BackgroundRemover::cacheMutex_;
 std::unordered_map<QString, std::weak_ptr<BackgroundRemover>> BackgroundRemover::cache_;
 
-static QString getSettingsKey(const QString& path) {
-    return QString::fromLatin1(QUrl::toPercentEncoding(path));
-}
 
 QString BackgroundRemover::computeSha256(const QString& path) {
     QFile file(path);
@@ -38,18 +33,6 @@ QString BackgroundRemover::computeSha256(const QString& path) {
         hash.addData(buffer);
     }
     return hash.result().toHex();
-}
-
-void BackgroundRemover::saveModelMetadata(const QString& path, const QString& sha) {
-    if (sha.isEmpty())
-        return;
-    QSettings settings("bg-remover", "BackgroundRemover");
-    settings.beginGroup("Models");
-    QString key = getSettingsKey(path);
-    settings.setValue(key + "/sha", sha);
-    settings.setValue(key + "/timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
-    settings.setValue(key + "/path", path);
-    settings.endGroup();
 }
 
 BackgroundRemover::BackgroundRemover(const QString& modelPath)
@@ -98,9 +81,6 @@ BackgroundRemover::BackgroundRemover(const QString& modelPath)
     modelSize_ = info.size();
     modelModified_ = info.lastModified();
     modelSha_ = BackgroundRemover::computeSha256(modelPath);
-    if (!modelSha_.isEmpty()) {
-        BackgroundRemover::saveModelMetadata(modelPath, modelSha_);
-    }
 }
 
 bool BackgroundRemover::modelFileUnchanged() const

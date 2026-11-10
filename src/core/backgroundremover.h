@@ -42,7 +42,6 @@ private:
     int detectInputSize(const QString& modelPath) const;
 
     static QString computeSha256(const QString& path);
-    static void saveModelMetadata(const QString& path, const QString& sha);
     // Deteta alteracoes ao ficheiro do modelo sem o re-hashear:
     // compara tamanho e data de modificacao com os do carregamento.
     bool modelFileUnchanged() const;

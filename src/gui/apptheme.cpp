@@ -162,6 +162,13 @@ QString stylesheet(bool dark)
              .arg(accent, accentTxt);
     q += QString("QPushButton#saveButton:hover { background: %1; }\n")
              .arg(accentHov);
+    // As regras por id tem mais especificidade do que a regra geral
+    // ":disabled": sem estas, um botao primario desativado continuava
+    // com o fundo de destaque e parecia ativo.
+    q += QString("QPushButton#primaryAction:disabled { background: %1;"
+                 " color: %2; border-color: %3; }\n").arg(bg, muted, border);
+    q += QString("QPushButton#saveButton:disabled { background: %1;"
+                 " color: %2; border-color: %3; }\n").arg(bg, muted, border);
     q += QString("QPushButton#logToggle { background: transparent; border: 0;"
                  " color: %1; text-align: left; }\n").arg(muted);
     q += QString("QPushButton#zoomButton:hover { background: %1; }\n")

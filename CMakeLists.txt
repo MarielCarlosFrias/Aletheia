@@ -130,8 +130,38 @@ if(WIN32 AND NOT EXISTS "${ONNX_RUNTIME_PROVIDER_LIBRARY}")
         "${ONNX_RUNTIME_PROVIDER_LIBRARY}")
 endif()
 
-add_executable(aletheia
-    src/gui/main.cpp
+# Nucleo partilhado (sem widgets): usado pela aplicacao, pelo CLI e
+# pelos testes. Antes cada alvo de teste recompilava estas fontes
+# (4-5 vezes) e podia divergir do binario distribuido.
+add_library(aletheia_core STATIC
+    src/core/backgroundremover.cpp
+    src/core/backgroundremover.h
+    src/core/batchplan.h
+    src/core/batchprocessor.cpp
+    src/core/batchprocessor.h
+    src/core/i18n.h
+    src/core/imagepostprocessor.cpp
+    src/core/imagepostprocessor.h
+    src/core/modelpathresolver.cpp
+    src/core/modelpathresolver.h
+    src/core/modelvalidator.cpp
+    src/core/modelvalidator.h
+    src/core/processingoptions.h
+    src/core/savepath.h)
+target_include_directories(aletheia_core PUBLIC
+    "${CMAKE_SOURCE_DIR}/src/core"
+    "${CMAKE_SOURCE_DIR}/src/gui")
+target_link_libraries(aletheia_core PUBLIC
+    Qt6::Core Qt6::Gui Qt6::Network Qt6::Concurrent onnxruntime)
+target_compile_definitions(aletheia_core PUBLIC
+    ALETHEIA_VERSION="${PROJECT_VERSION}")
+if(NOT WIN32)
+    set_target_properties(aletheia_core PROPERTIES
+        BUILD_RPATH "${ONNX_DIR}/lib")
+endif()
+
+# Parte grafica: janela principal, canvas de mascara, ajuda, tema.
+add_library(aletheia_gui STATIC
     src/gui/mainwindow.cpp
     src/gui/mainwindow.h
     src/gui/maskeditcanvas.cpp
@@ -142,25 +172,17 @@ add_executable(aletheia
     src/gui/collapsiblesection.h
     src/gui/apptheme.cpp
     src/gui/apptheme.h
-    src/core/i18n.h
-    src/core/imagepostprocessor.cpp
-    src/core/imagepostprocessor.h
     src/core/modelmanager.cpp
-    src/core/modelmanager.h
-    src/core/modelpathresolver.cpp
-    src/core/modelpathresolver.h
-    src/core/modelvalidator.cpp
-    src/core/modelvalidator.h
-    src/core/processingoptions.h
-    src/core/batchplan.h
-    src/core/backgroundremover.cpp
-    src/core/backgroundremover.h)
+    src/core/modelmanager.h)
+target_link_libraries(aletheia_gui PUBLIC
+    aletheia_core Qt6::Widgets)
+
+add_executable(aletheia
+    src/gui/main.cpp)
+target_link_libraries(aletheia PRIVATE aletheia_gui)
 qt_add_resources(aletheia "aletheia_icon"
     PREFIX "/"
     FILES assets/aletheia.svg)
-target_link_libraries(aletheia
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Concurrent
-    onnxruntime)
 target_compile_definitions(aletheia PRIVATE
     ALETHEIA_VERSION="${PROJECT_VERSION}")
 if(APPLE)
@@ -186,22 +208,8 @@ elseif(NOT WIN32)
 endif()
 
 add_executable(aletheia_cli
-    src/cli/main_cli.cpp
-    src/core/i18n.h
-    src/core/batchprocessor.cpp
-    src/core/batchprocessor.h
-    src/core/batchplan.h
-    src/core/imagepostprocessor.cpp
-    src/core/imagepostprocessor.h
-    src/core/modelpathresolver.cpp
-    src/core/modelpathresolver.h
-    src/core/processingoptions.h
-    src/core/backgroundremover.cpp
-    src/core/backgroundremover.h)
-target_link_libraries(aletheia_cli
-    Qt6::Core Qt6::Gui onnxruntime)
-target_compile_definitions(aletheia_cli PRIVATE
-    ALETHEIA_VERSION="${PROJECT_VERSION}")
+    src/cli/main_cli.cpp)
+target_link_libraries(aletheia_cli PRIVATE aletheia_core)
 if(APPLE)
     # O CLI e instalado dentro do .app para partilhar os frameworks
     # Qt/ONNX e o modelo incluido em Contents/Resources.
@@ -237,42 +245,33 @@ endif()
 
 enable_testing()
 add_executable(test_postprocessing
-    tests/test_postprocessing.cpp
-    src/core/imagepostprocessor.cpp
-    src/core/imagepostprocessor.h
-    src/core/processingoptions.h)
-target_link_libraries(test_postprocessing Qt6::Core Qt6::Gui)
+    tests/test_postprocessing.cpp)
+target_link_libraries(test_postprocessing PRIVATE aletheia_core)
 add_test(NAME postprocessing_test COMMAND test_postprocessing)
 
 add_executable(test_batchplan
-    tests/test_batchplan.cpp
-    src/core/batchplan.h)
-target_link_libraries(test_batchplan Qt6::Core)
+    tests/test_batchplan.cpp)
+target_link_libraries(test_batchplan PRIVATE aletheia_core)
 add_test(NAME batchplan_test COMMAND test_batchplan)
 
 add_executable(test_modelpath
-    tests/test_modelpath.cpp
-    src/core/modelpathresolver.cpp
-    src/core/modelpathresolver.h)
-target_link_libraries(test_modelpath Qt6::Core)
+    tests/test_modelpath.cpp)
+target_link_libraries(test_modelpath PRIVATE aletheia_core)
 add_test(NAME modelpath_test COMMAND test_modelpath)
 
 add_executable(test_modelvalidator
-    tests/test_modelvalidator.cpp
-    src/core/modelvalidator.cpp
-    src/core/modelvalidator.h)
-target_link_libraries(test_modelvalidator Qt6::Core)
+    tests/test_modelvalidator.cpp)
+target_link_libraries(test_modelvalidator PRIVATE aletheia_core)
 add_test(NAME modelvalidator_test COMMAND test_modelvalidator)
 
 add_executable(test_savepath
-    tests/test_savepath.cpp
-    src/core/savepath.h)
-target_link_libraries(test_savepath Qt6::Core)
+    tests/test_savepath.cpp)
+target_link_libraries(test_savepath PRIVATE aletheia_core)
 add_test(NAME savepath_test COMMAND test_savepath)
 
 add_executable(test_imageformats
     tests/test_imageformats.cpp)
-target_link_libraries(test_imageformats Qt6::Core Qt6::Gui)
+target_link_libraries(test_imageformats PRIVATE aletheia_core)
 add_test(NAME imageformats_test COMMAND test_imageformats)
 
 # Teste de fumo da GUI: constroi a janela real em modo offscreen,
@@ -280,39 +279,13 @@ add_test(NAME imageformats_test COMMAND test_imageformats)
 # corre uma inferencia completa. Sem modelo, o caso de inferencia
 # valida apenas a recuperacao da UI.
 add_executable(test_gui
-    tests/test_gui.cpp
-    src/gui/mainwindow.cpp
-    src/gui/mainwindow.h
-    src/gui/maskeditcanvas.cpp
-    src/gui/maskeditcanvas.h
-    src/gui/helpwidget.cpp
-    src/gui/helpwidget.h
-    src/gui/collapsiblesection.cpp
-    src/gui/collapsiblesection.h
-    src/gui/apptheme.cpp
-    src/gui/apptheme.h
-    src/core/i18n.h
-    src/core/imagepostprocessor.cpp
-    src/core/imagepostprocessor.h
-    src/core/modelmanager.cpp
-    src/core/modelmanager.h
-    src/core/modelpathresolver.cpp
-    src/core/modelpathresolver.h
-    src/core/modelvalidator.cpp
-    src/core/modelvalidator.h
-    src/core/processingoptions.h
-    src/core/batchplan.h
-    src/core/backgroundremover.cpp
-    src/core/backgroundremover.h)
-target_link_libraries(test_gui
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Concurrent
-    onnxruntime)
-target_compile_definitions(test_gui PRIVATE
-    ALETHEIA_VERSION="${PROJECT_VERSION}")
-if(NOT WIN32)
-    set_target_properties(test_gui PROPERTIES
-        BUILD_RPATH "${ONNX_DIR}/lib")
-endif()
+    tests/test_gui.cpp)
+target_link_libraries(test_gui PRIVATE aletheia_gui)
+# O icone do cabecalho vive no recurso Qt: sem ele a janela mostra
+# "qt.svg: Cannot open file ':/assets/aletheia.svg'".
+qt_add_resources(test_gui "aletheia_icon"
+    PREFIX "/"
+    FILES assets/aletheia.svg)
 add_test(NAME gui_test_pt
     COMMAND test_gui "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 add_test(NAME gui_test_en
@@ -325,18 +298,8 @@ set_tests_properties(gui_test_en PROPERTIES
         "QT_QPA_PLATFORM=offscreen;ALETHEIA_LANG=en;ALETHEIA_NO_UPDATE_CHECK=1")
 
 add_executable(test_batchprocessor
-    tests/test_batchprocessor.cpp
-    src/core/batchprocessor.cpp
-    src/core/batchprocessor.h
-    src/core/batchplan.h
-    src/core/imagepostprocessor.cpp
-    src/core/imagepostprocessor.h
-    src/core/processingoptions.h
-    src/core/backgroundremover.cpp
-    src/core/backgroundremover.h
-    src/core/i18n.h)
-target_link_libraries(test_batchprocessor
-    Qt6::Core Qt6::Gui onnxruntime)
+    tests/test_batchprocessor.cpp)
+target_link_libraries(test_batchprocessor PRIVATE aletheia_core)
 add_test(NAME batchprocessor_test
     COMMAND test_batchprocessor "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
@@ -345,11 +308,8 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 endif()
 
 add_executable(test_inference
-    tests/test_inference.cpp
-    src/core/backgroundremover.cpp
-    src/core/backgroundremover.h)
-target_link_libraries(test_inference
-    Qt6::Core Qt6::Gui onnxruntime)
+    tests/test_inference.cpp)
+target_link_libraries(test_inference PRIVATE aletheia_core)
 add_test(NAME inference_test
     COMMAND test_inference "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
@@ -358,14 +318,12 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 endif()
 
 add_executable(test_visual_regression
-    tests/test_visual_regression.cpp
-    src/core/backgroundremover.cpp
-    src/core/backgroundremover.h
-    src/core/imagepostprocessor.cpp
-    src/core/imagepostprocessor.h
-    src/core/processingoptions.h)
-target_link_libraries(test_visual_regression
-    Qt6::Core Qt6::Gui onnxruntime)
+    tests/test_visual_regression.cpp)
+target_link_libraries(test_visual_regression PRIVATE aletheia_core)
+# O teste precisa de encontrar os assets de regressao visual sem
+# caminhos absolutos fixos.
+target_compile_definitions(test_visual_regression PRIVATE
+    ALETHEIA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME visual_regression_test
     COMMAND test_visual_regression "${CMAKE_SOURCE_DIR}/u2netp.onnx")
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
@@ -491,6 +449,12 @@ else()
     set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "qt6-image-formats-plugins")
     set(CPACK_DEBIAN_PACKAGE_SECTION "graphics")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    # O binario usa RPATH ($ORIGIN/../lib/aletheia), mas registar a
+    # biblioteca no cache do linker e o que faz um "postinst" com
+    # ldconfig: sem ele o /usr/lib/aletheia/libonnxruntime.so* nao fica
+    # no cache do sistema.
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_SOURCE_DIR}/debian/postinst")
     # Uma unica string: varios argumentos viram uma lista CMake e o
     # CPack junta-os com ';' na descricao do pacote.
     set(CPACK_DEBIAN_PACKAGE_DESCRIPTION

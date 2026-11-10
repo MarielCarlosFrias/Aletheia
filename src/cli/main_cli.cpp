@@ -49,12 +49,19 @@ int main(int argc, char* argv[]) {
                  "Output format (png, jpg, webp)."),
         I18n::tr("formato", "format"),
         QStringLiteral("png"));
+    const QCommandLineOption jobsOption(
+        QStringList() << "j" << "jobs",
+        I18n::tr("Número de imagens processadas em paralelo (1 = sequencial).",
+                 "Number of images processed in parallel (1 = sequential)."),
+        I18n::tr("N", "N"),
+        QStringLiteral("1"));
 
     parser.addOption(helpOption);
     parser.addOption(versionOption);
     parser.addOption(outputOption);
     parser.addOption(modelOption);
     parser.addOption(formatOption);
+    parser.addOption(jobsOption);
     parser.addPositionalArgument(
         I18n::tr("entrada", "input"),
         I18n::tr("Diretório com imagens.", "Directory with images."));
@@ -75,11 +82,13 @@ int main(int argc, char* argv[]) {
                          "\nExemplos:\n"
                          "  aletheia_cli ~/imagens ~/saida\n"
                          "  aletheia_cli ~/imagens --model u2net.onnx\n"
-                         "  aletheia_cli ~/imagens -o ~/saida -m u2net.onnx\n",
+                         "  aletheia_cli ~/imagens -o ~/saida -m u2net.onnx\n"
+                         "  aletheia_cli ~/imagens -f jpg -j 4\n",
                          "\nExamples:\n"
                          "  aletheia_cli ~/pictures ~/output\n"
                          "  aletheia_cli ~/pictures --model u2net.onnx\n"
-                         "  aletheia_cli ~/pictures -o ~/output -m u2net.onnx\n")
+                         "  aletheia_cli ~/pictures -o ~/output -m u2net.onnx\n"
+                         "  aletheia_cli ~/pictures -f jpg -j 4\n")
                          .toStdString()
                   << std::flush;
     };
@@ -174,6 +183,20 @@ int main(int argc, char* argv[]) {
     ProcessingOptions options;
     options.modelPath = modelPath;
     options.outputFormat = parser.value(formatOption);
+
+    bool jobsOk = false;
+    const int jobs = parser.value(jobsOption).toInt(&jobsOk);
+    if (!jobsOk || jobs < 1) {
+        std::cerr << I18n::tr("Número de tarefas inválido: ",
+                              "Invalid number of jobs: ").toStdString()
+                  << parser.value(jobsOption).toStdString()
+                  << I18n::tr(". Use um inteiro >= 1.",
+                              ". Use an integer >= 1.").toStdString()
+                  << std::endl;
+        return 1;
+    }
+    options.maxConcurrentImages = jobs;
+
     BatchProcessor processor(options);
     BatchProcessor::Result r = processor.processDirectory(
         inputDir, outputDir);

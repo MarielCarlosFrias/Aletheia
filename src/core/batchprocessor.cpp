@@ -8,11 +8,11 @@
 #include <QImage>
 #include <QImageWriter>
 #include <QImageReader>
-#include <QSemaphore>
 #include <QMutex>
 #include <iostream>
 #include <utility>
-#include <future>
+#include <atomic>
+#include <thread>
 #include <vector>
 #include <algorithm>
 
@@ -103,6 +103,11 @@ BatchProcessor::Result BatchProcessor::processDirectory(
               << plan.size()
               << I18n::tr(" imagens...", " images...").toStdString() << std::endl;
 
+    // O idioma e detetado uma unica vez (cache estatico): garantir que
+    // a leitura do QSettings acontece na thread principal e nao numa
+    // das threads de trabalho.
+    (void)I18n::lang();
+
     try {
         // Carrega o modelo uma vez (deteta falhas fatais antes de
         // processar). A sessao e reutilizada por todas as imagens: evita
@@ -115,19 +120,17 @@ BatchProcessor::Result BatchProcessor::processDirectory(
             (writerFormat == QLatin1String("png")
              || writerFormat == QLatin1String("webp"));
 
-        int concurrency = std::max(1, options_.maxConcurrentImages);
-        QSemaphore sem(concurrency);
+        const int concurrency = std::max(1, options_.maxConcurrentImages);
         QMutex resultMutex;
         QMutex coutMutex;
 
-        std::vector<std::future<void>> futures;
-        futures.reserve(plan.size());
-
-        for (int i = 0; i < plan.size(); ++i) {
-            const auto entry = plan[i];
-            const int idx = i;
-            futures.emplace_back(std::async(std::launch::async, [&, entry, idx, format, formatHasAlpha]() {
-                sem.acquire();
+        // Pool fixo de threads: antes era criado um std::async (e uma
+        // thread do sistema) por imagem, o que esgota os recursos em
+        // lotes grandes. As threads vao buscar o proximo indice a um
+        // contador atomico.
+        std::atomic<int> nextIndex{0};
+        const auto processEntry = [&](const BatchPlan::Entry& entry, int idx) {
+            {
                 const QString file = QFileInfo(entry.inputPath).fileName();
                 const QString outName = QFileInfo(entry.outputPath).fileName();
                 try {
@@ -191,12 +194,23 @@ BatchProcessor::Result BatchProcessor::processDirectory(
                     QMutexLocker clog(&coutMutex);
                     std::cerr << "[ERRO] " << file.toStdString() << ": " << msg.toStdString() << std::endl;
                 }
-                sem.release();
-            }));
-        }
+            }
+        };
 
-        for (auto &f : futures) {
-            f.get();
+        const int workerCount = std::min<int>(concurrency, plan.size());
+        std::vector<std::thread> workers;
+        workers.reserve(workerCount);
+        for (int w = 0; w < workerCount; ++w) {
+            workers.emplace_back([&]() {
+                for (;;) {
+                    const int idx = nextIndex.fetch_add(1);
+                    if (idx >= plan.size()) break;
+                    processEntry(plan[idx], idx);
+                }
+            });
+        }
+        for (auto& worker : workers) {
+            worker.join();
         }
     } catch (const std::exception& e) {
         result.fatal = true;

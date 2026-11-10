@@ -1271,6 +1271,8 @@ void MainWindow::removeBackground() {
     const QString errGeneric = TR("Falha: ", "Failure: ");
     const QString errUnknown = TR("Erro desconhecido durante a inferência.",
                                   "Unknown error during inference.");
+    const QString errCancelled = TR("Inferência cancelada pelo usuário.",
+                                    "Inference cancelled by user.");
 
     // Se outra imagem for aberta durante a inferencia, este numero
     // muda e o resultado antigo e descartado ao chegar.
@@ -1282,7 +1284,7 @@ void MainWindow::removeBackground() {
     // com o motivo e o erro volta pelo caminho normal (log + dialogo).
     removeWatcher_.setFuture(QtConcurrent::run(
         [cache = modelCache_, img = originalImage_, options,
-         generation, errModel, errOnnx, errGeneric, errUnknown]()
+         generation, errModel, errOnnx, errGeneric, errUnknown, errCancelled]
             -> SingleResult {
             try {
                 QString modelError;
@@ -1305,7 +1307,7 @@ void MainWindow::removeBackground() {
             } catch (const std::exception& e) {
                 const QString msg = QString::fromUtf8(e.what());
                 if (msg.contains("cancelada", Qt::CaseInsensitive) || msg.contains("cancelled", Qt::CaseInsensitive)) {
-                    return { QImage(), TR("Inferência cancelada pelo usuário.", "Inference cancelled by user."), generation };
+                    return { QImage(), errCancelled, generation };
                 }
                 return { QImage(),
                          errGeneric + msg,

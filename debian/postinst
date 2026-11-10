@@ -1,0 +1,20 @@
+#!/bin/sh
+# Executado depois de instalar o pacote.
+#
+# A biblioteca do ONNX Runtime e instalada em /usr/lib/aletheia (fora
+# dos diretorios do sistema) e e encontrada pelo binario atraves do
+# RPATH ($ORIGIN/../lib/aletheia). Registar no cache do linker permite
+# que outras ferramentas a encontrem tambem.
+set -e
+
+case "$1" in
+    configure)
+        if [ -x /sbin/ldconfig ]; then
+            /sbin/ldconfig || true
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+esac
+
+exit 0
