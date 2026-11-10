@@ -4,14 +4,21 @@ on:
   push:
     tags: ['v*']
 
+# Escrita apenas no job que publica (o resto do workflow nao precisa
+# de escrever no repositorio).
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  # Duas tags pushed em sequencia nao devem criar releases em paralelo.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   linux-deb:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-image-formats-plugins
       - name: Prepare ONNX Runtime and model (com retry)
         run: |
@@ -31,7 +38,7 @@ jobs:
       - run: cmake -S . -B build -G Ninja -DINSTALLED=ON -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON -DBG_REMOVER_BUNDLE_MODELS=ON
       - run: cmake --build build --parallel && ctest --test-dir build --output-on-failure
       - run: cpack --config build/CPackConfig.cmake -G DEB -B dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-deb
           path: dist/*.deb
@@ -42,7 +49,7 @@ jobs:
     # grande maioria das distros ativas.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -77,10 +84,27 @@ jobs:
         run: DESTDIR=appdir cmake --install build
       - name: Build AppImage
         run: |
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
-          chmod +x linuxdeploy*.AppImage
-          mv linuxdeploy*.AppImage /tmp/
+          # O upstream so publica builds "continuous" (nao ha versoes
+          # assinadas). A integridade e verificada com o SHA-1 do
+          # ficheiro .zsync do proprio upstream: assim o binario usado
+          # so muda quando o upstream publica um novo build.
+          fetch_checked() {
+            name="$1"; repo="$2"
+            if [ ! -f "/tmp/$name" ]; then
+              wget -q "https://github.com/$repo/releases/download/continuous/$name" -O "/tmp/$name"
+              wget -q "https://github.com/$repo/releases/download/continuous/$name.zsync" -O "/tmp/$name.zsync"
+              expected=$(grep -m1 -i '^SHA-1:' "/tmp/$name.zsync" | awk '{print $2}')
+              actual=$(sha1sum "/tmp/$name" | awk '{print $1}')
+              if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+                echo "ERRO: checksum invalido para $name (esperado $expected, obtido $actual)"
+                exit 1
+              fi
+              echo "OK: $name verificado ($actual)"
+            fi
+          }
+          fetch_checked linuxdeploy-x86_64.AppImage linuxdeploy/linuxdeploy
+          fetch_checked linuxdeploy-plugin-qt-x86_64.AppImage linuxdeploy/linuxdeploy-plugin-qt
+          chmod +x /tmp/linuxdeploy*.AppImage
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE=/usr/bin/qmake6
           export VERSION="${GITHUB_REF_NAME#v}"
@@ -93,7 +117,7 @@ jobs:
             --plugin qt --output appimage
           mv *.AppImage "aletheia_${VERSION}_amd64.AppImage"
           ls -la aletheia_*.AppImage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-appimage
           path: aletheia_*_amd64.AppImage
@@ -101,7 +125,12 @@ jobs:
   windows-zip:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Cache Qt 6.7.3
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: Qt
+          key: qt-windows-6.7.3-${{ hashFiles('.github/workflows/release.yml') }}
       - name: Install aqt (pip)
         shell: pwsh
         run: |
@@ -124,7 +153,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
       - run: cpack --config build/CPackConfig.cmake -C Release -G ZIP -B dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-zip
           path: dist/*.zip
@@ -132,7 +161,12 @@ jobs:
   macos-zip:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Cache Qt 6.7.3
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: Qt
+          key: qt-macos-6.7.3-${{ hashFiles('.github/workflows/release.yml') }}
       - name: Install aqt and Qt 6.7.3
         run: |
           python3 -m venv "$RUNNER_TEMP/aqt"
@@ -194,21 +228,33 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           ditto -c -k --keepParent "$APP" "aletheia_${VERSION}_macos_universal2.zip"
           ls -lh aletheia_*_macos_universal2.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-zip
           path: aletheia_*_macos_universal2.zip
 
   publish:
     needs: [linux-deb, linux-appimage, windows-zip, macos-zip]
+    permissions:
+      contents: write
     # Publica o que existir mesmo que um job falhe: uma falha isolada
     # (ex.: AppImage) nao deve custar a release inteira. Foi o que
     # aconteceu na v1.0.1, com DEB e ZIP prontos e nunca publicados.
     if: ${{ always() && !cancelled() && contains(needs.*.result, 'success') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check version matches the tag
+        # Um pacote com a versao errada seria publicado em silencio.
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CMAKE_VERSION=$(sed -n 's/^project(aletheia VERSION \([^)]*\)).*/\1/p' CMakeLists.txt | head -1)
+          echo "tag=$TAG cmake=$CMAKE_VERSION"
+          if [ "$TAG" != "$CMAKE_VERSION" ]; then
+            echo "ERRO: a versao do CMakeLists ($CMAKE_VERSION) nao corresponde a tag ($TAG)"
+            exit 1
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
@@ -219,7 +265,7 @@ jobs:
         run: |
           sha256sum aletheia_* > SHA256SUMS
           cat SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
           files: dist/*
           generate_release_notes: true

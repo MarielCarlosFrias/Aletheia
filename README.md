@@ -130,6 +130,9 @@ aletheia_cli /path/to/input_folder -o /path/to/output_folder
 # Use a specific ONNX model and export to WebP
 aletheia_cli /path/to/input_folder -o /path/to/output -m path/to/model.onnx -f webp
 
+# Process 4 images in parallel (1 = sequential, the default)
+aletheia_cli /path/to/input_folder -o /path/to/output -j 4
+
 # Positional legacy syntax
 aletheia_cli <input_folder> [output_folder] [model.onnx]
 

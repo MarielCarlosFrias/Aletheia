@@ -9,6 +9,8 @@ aletheia_cli \- remove image backgrounds in batch
 .IR model.onnx ]
 .RB [ \-f
 .IR format ]
+.RB [ \-j
+.IR jobs ]
 .I input_directory
 .RI [ output_directory ]
 .RI [ model.onnx ]
@@ -58,7 +60,14 @@ instead of the default model. Equivalent to the third positional
 argument.
 .TP
 .BI \-f ", " \-\-format " " format
-Set output format (png, jpg, webp). Defaults to png.
+Set output format (png, jpg, webp). Defaults to png. The file
+extension follows the chosen format.
+.TP
+.BI \-j ", " \-\-jobs " " N
+Process
+.I N
+images in parallel (1 = sequential, the default). Useful with small
+models on multi-core machines.
 .SH EXAMPLES
 Process a folder with the default model:
 .PP
@@ -73,6 +82,14 @@ Use long options:
 .nf
 .RS
 aletheia_cli ~/Pictures/input --output ~/Pictures/output --model u2net.onnx --format webp
+.RE
+.fi
+.PP
+Process four images in parallel:
+.PP
+.nf
+.RS
+aletheia_cli ~/Pictures/input --output ~/Pictures/output --jobs 4
 .RE
 .fi
 .PP

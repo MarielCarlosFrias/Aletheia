@@ -15,7 +15,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-image-formats-plugins
@@ -58,8 +58,15 @@ jobs:
     # correr tambem em Macs Intel.
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Cache Qt 6.7.3
+        # O aqt descarrega ~1 GB de Qt em cada run: o cache poupa
+        # varios minutos por execucao.
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: Qt
+          key: qt-macos-6.7.3-${{ hashFiles('.github/workflows/ci.yml') }}
       - name: Install aqt and Qt 6.7.3
         run: |
           python3 -m venv "$RUNNER_TEMP/aqt"
@@ -122,8 +129,13 @@ jobs:
     # Imagem fixada: o install-qt-action v4 falha na imagem 2025.
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Cache Qt 6.7.3
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: Qt
+          key: qt-windows-6.7.3-${{ hashFiles('.github/workflows/ci.yml') }}
       - name: Install aqt (pip)
         shell: pwsh
         run: |
@@ -194,7 +206,7 @@ jobs:
           }
           Write-Host 'ZIP OK: todas as DLLs obrigatorias presentes'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: aletheia-windows-portable
           path: dist/*.zip

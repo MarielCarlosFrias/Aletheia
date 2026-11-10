@@ -268,6 +268,16 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     progressBar_->setObjectName("progressBar");
     logEdit_->setObjectName("logEdit");
     maskEditCanvas_->setObjectName("resultCanvas");
+    // Acessibilidade: o canvas e os controlos do pincel precisam de
+    // nome/descricao para leitores de ecra.
+    maskEditCanvas_->setAccessibleName(
+        TR("Resultado (máscara editável)",
+           "Result (editable mask)"));
+    maskEditCanvas_->setAccessibleDescription(
+        TR("Clique para restaurar ou apagar areas da máscara.",
+           "Click to restore or erase areas of the mask."));
+    brushModeCombo_->setAccessibleName(TR("Modo do pincel", "Brush mode"));
+    brushRadiusSpin_->setAccessibleName(TR("Raio do pincel", "Brush radius"));
     btnProcessBatch_->setObjectName("processBatchButton");
     btnUndo_->setObjectName("undoButton");
     btnRedo_->setObjectName("redoButton");

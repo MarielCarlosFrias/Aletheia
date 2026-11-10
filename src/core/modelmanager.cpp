@@ -173,7 +173,7 @@ ModelManagerWidget::catalog()
              "mais lento em CPU.",
              "Full model (~176 MB). Best general segmentation; "
              "slower on CPU."),
-          175997641, base + "/u2net.onnx", QString() },
+          175997641, base + "/u2net.onnx", "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491" },
         { "u2net_human_seg.onnx",
           TR("U²-Net Human Seg — pessoas",
              "U²-Net Human Seg — people"),
@@ -181,7 +181,7 @@ ModelManagerWidget::catalog()
              "grupo e vídeos com humanos.",
              "Specialized in people (~176 MB): portraits, group "
              "photos and footage with humans."),
-          175997641, base + "/u2net_human_seg.onnx", QString() },
+          175997641, base + "/u2net_human_seg.onnx", "01eb6a29a5c4d8edb30b56adad9bb3a2a0535338e480724a213e0acfd2d1c73c" },
         { "isnet-general-use.onnx",
           TR("ISNet General Use — bordas melhores",
              "ISNet General Use — better edges"),
@@ -189,14 +189,14 @@ ModelManagerWidget::catalog()
              "e menos resíduos que o U²-Net.",
              "ISNet generation (~178 MB), typically with cleaner edges "
              "and less residue than U²-Net."),
-          178648008, base + "/isnet-general-use.onnx", QString() },
+          178648008, base + "/isnet-general-use.onnx", "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a" },
         { "isnet-anime.onnx",
           TR("ISNet Anime — ilustração", "ISNet Anime — illustration"),
           TR("Otimizado para anime/ilustração (~176 MB): mantém linhas e "
              "áreas planas intactas.",
              "Optimized for anime/illustration (~176 MB): keeps lines "
              "and flat areas intact."),
-          176069933, base + "/isnet-anime.onnx", QString() },
+          176069933, base + "/isnet-anime.onnx", "f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99" },
         { "bria-rmbg-1.4.onnx",
           TR("BRIA RMBG-1.4 — alta definição", "BRIA RMBG-1.4 — high definition"),
           TR("Modelo moderno da BRIA AI (~176 MB): excelente precisão em "
@@ -205,7 +205,7 @@ ModelManagerWidget::catalog()
              "hair, pets and fine studio cutouts."),
           176153355,
           "https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx",
-          QString() },
+          "8cafcf770b06757c4eaced21b1a88e57fd2b66de01b8045f35f01535ba742e0f" },
         { "bria-rmbg-2.0.onnx",
           TR("BRIA RMBG-2.0 — máxima precisão", "BRIA RMBG-2.0 — maximum precision"),
           TR("Versão mais recente da BRIA AI (~977 MB): segmentação profissional "
@@ -214,7 +214,7 @@ ModelManagerWidget::catalog()
              "segmentation with highest accuracy on complex details."),
           1024331469,
           base + "/bria-rmbg-2.0.onnx",
-          QString() },
+          "5b486f08200f513f460da46dd701db5fbb47d79b4be4b708a19444bcd4e79958" },
         { "birefnet-general.onnx",
           TR("BiRefNet — estado da arte", "BiRefNet — state of the art"),
           TR("Bilateral Reference Network (~928 MB): máxima fidelidade "
@@ -223,7 +223,7 @@ ModelManagerWidget::catalog()
              "and microscopic detail on edges."),
           972666916,
           base + "/BiRefNet-general-epoch_244.onnx",
-          QString() },
+          "58f621f00f5d756097615970a88a791584600dcf7c45b18a0a6267535a1ebd3c" },
     };
 }
 
@@ -533,8 +533,8 @@ void ModelManagerWidget::onDownloadFinished()
         return;
     }
 
-    // Sem SHA256 publicado, o tamanho exato e a unica verificacao
-    // disponivel (os valores do catalogo vem dos assets do rembg).
+    // Todos os modelos do catalogo tem SHA256 publicado: para alem do
+    // tamanho, a integridade e verificada criptograficamente.
     const qint64 actualSize = QFileInfo(partPath).size();
     if (pendingSizeBytes_ > 0 && actualSize != pendingSizeBytes_) {
         QFile::remove(partPath);
