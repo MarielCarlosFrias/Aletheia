@@ -9,6 +9,7 @@
 #include <QCloseEvent>
 #include <QFile>
 #include <QFileDialog>
+#include <QIcon>
 #include <QImageReader>
 #include <QImageWriter>
 #include <QMessageBox>
@@ -54,6 +55,8 @@
 #include <QSignalBlocker>
 #include <QTabWidget>
 #include <QStackedWidget>
+#include <QMenu>
+#include <QMenuBar>
 #include <QtConcurrent/QtConcurrent>
 #include <QWheelEvent>
 #include <algorithm>
@@ -130,6 +133,8 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       btnRemove_(new QPushButton(TR("Remover fundo", "Remove background"))),
       btnSave_(new QPushButton(TR("Salvar imagem", "Save image"))),
       btnCopy_(new QPushButton),
+      btnCopyTransparent_(new QPushButton),
+      actCopyTransparent_(new QAction(this)),
       btnLoadModel_(new QPushButton(TR("Buscar...", "Browse..."))),
       btnSelectFolder_(new QPushButton("...")),
       btnSelectOutput_(new QPushButton("...")),
@@ -280,8 +285,15 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     auto* headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(18, 0, 18, 0);
     headerLayout->setSpacing(10);
-    auto* brandMark = new QLabel("A");
+    auto* brandMark = new QLabel;
     brandMark->setObjectName("brandMark");
+    brandMark->setFixedSize(24, 24);
+    // Renderiza o icone em 2x e reduz para 24 px logicos: fica nitido
+    // em ecras HiDPI e continua correto em ecras 1x.
+    QPixmap brandPixmap =
+        QIcon(":/assets/aletheia.svg").pixmap(QSize(48, 48));
+    brandPixmap.setDevicePixelRatio(2.0);
+    brandMark->setPixmap(brandPixmap);
     auto* title = new QLabel("Aletheia");
     title->setObjectName("appTitle");
     auto* subtitle = new QLabel(TR("Editor de fundo local",
@@ -424,6 +436,15 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
            "Copy result to clipboard (Ctrl+C or Ctrl+Shift+C)"));
     btnCopy_->setText(TR("Copiar", "Copy"));
     editorFooterLayout->addWidget(btnCopy_);
+    btnCopyTransparent_->setObjectName("copyTransparentButton");
+    btnCopyTransparent_->setToolTip(
+        TR("Copiar PNG transparente para a área de transferência",
+           "Copy transparent PNG to clipboard"));
+    btnCopyTransparent_->setText(TR("Copiar PNG transparente", "Copy transparent PNG"));
+    editorFooterLayout->addWidget(btnCopyTransparent_);
+    actCopyTransparent_->setText(TR("Copiar PNG transparente", "Copy transparent PNG"));
+    actCopyTransparent_->setToolTip(btnCopyTransparent_->toolTip());
+    connect(actCopyTransparent_, &QAction::triggered, this, &MainWindow::copyTransparentResult);
     btnSave_->setObjectName("saveButton");
     editorFooterLayout->addWidget(btnSave_);
     workspaceLayout->addWidget(editorFooter);
@@ -653,6 +674,8 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
             this,              &MainWindow::saveResult);
     connect(btnCopy_,          &QPushButton::clicked,
             this,              &MainWindow::copyResult);
+    connect(btnCopyTransparent_, &QPushButton::clicked,
+            this,              &MainWindow::copyTransparentResult);
     connect(saveFormatCombo_, QOverload<int>::of(
                 &QComboBox::currentIndexChanged),
             this,              &MainWindow::onSaveFormatChanged);
@@ -777,6 +800,18 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     });
 
     restoreSettings();
+
+    // Ação de toggle para visualização de máscara alfa-only
+    actionShowMaskPreview_ = new QAction(TR("Mostrar máscara alfa", "Show alpha mask"), this);
+    actionShowMaskPreview_->setCheckable(true);
+    actionShowMaskPreview_->setShortcut(QKeySequence("Ctrl+M"));
+    actionShowMaskPreview_->setToolTip(TR("Alternar visualização da máscara alfa (alpha-only)", "Toggle alpha mask visualization (alpha-only)"));
+    connect(actionShowMaskPreview_, &QAction::toggled, this, [this](bool checked){
+        showMaskPreview_ = checked;
+        updateResultDisplay();
+    });
+    QMenu* viewMenu = menuBar()->addMenu(TR("Ver", "View"));
+    viewMenu->addAction(actionShowMaskPreview_);
 
     // Modelo preferido: o argumento da linha de comandos tem
     // prioridade; sem argumento, usa o ultimo guardado em QSettings.
@@ -980,6 +1015,7 @@ void MainWindow::editingDone()
     // engano caso algum evento chegue fora de tempo.
     if (isBusy_) return;
     resultImage_ = maskEditCanvas_->getEditedImage();
+    updateResultDisplay();
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)
@@ -1079,15 +1115,11 @@ void MainWindow::openImage() {
 
 void MainWindow::openPath(const QString& path) {
     // setAutoTransform aplica a orientacao EXIF (fotos de telemovel).
-    QImageReader reader(path);
-    reader.setAutoTransform(true);
-    const QImage img = reader.read();
+    const QImage img = ImagePostProcessor::loadImageExif(path);
     if (img.isNull()) {
-        QString detail = reader.errorString();
-        if (!detail.isEmpty()) detail = "\n" + detail;
         QMessageBox::warning(this, TR("Erro", "Error"),
             TR("Nao foi possivel carregar:\n", "Could not load:\n")
-                + path + detail);
+                + path);
         return;
     }
     ++imageGeneration_;
@@ -1137,6 +1169,20 @@ void MainWindow::modelIndexChanged(int index) {
     QString path = modelCombo_->itemData(index).toString();
     modelPathEdit_->setText(path);
     resetModel();
+
+    // Pré-carregar modelo em background para evitar bloqueio na primeira inferência
+    if (!path.isEmpty() && QFile::exists(path)) {
+        logEdit_->appendPlainText("[INFO] " + TR("Pré-carregando modelo...", "Preloading model..."));
+        (void)QtConcurrent::run([path, cache = modelCache_](){
+            try {
+                auto remover = BackgroundRemover::get(path);
+                Q_UNUSED(remover);
+                // Opcional: notificar UI
+            } catch (const std::exception& e) {
+                // Log silencioso; o erro será mostrado na inferência
+            }
+        });
+    }
 }
 
 void MainWindow::bgColorChanged(int index) {
@@ -1181,7 +1227,14 @@ void MainWindow::removeBackground() {
             TR("Abra uma imagem primeiro.", "Open an image first."));
         return;
     }
-    if (removeWatcher_.isRunning() || batchWatcher_.isRunning()) return;
+    if (removeWatcher_.isRunning()) {
+        if (currentRemover_) {
+            currentRemover_->requestCancel();
+            logEdit_->appendPlainText("[INFO] " + TR("Cancelamento solicitado.", "Cancellation requested."));
+        }
+        return;
+    }
+    if (batchWatcher_.isRunning()) return;
 
     // A inferencia corre numa thread de trabalho: a janela continua
     // reativa e o modelo e carregado la dentro (pode demorar segundos).
@@ -1210,25 +1263,31 @@ void MainWindow::removeBackground() {
     // muda e o resultado antigo e descartado ao chegar.
     const quint64 generation = imageGeneration_;
 
+    // Obtem remover antes de iniciar a thread para poder cancelar.
+    const auto remover = obtainRemover(modelCache_, options.modelPath);
+    currentRemover_ = remover;
+
     removeWatcher_.setFuture(QtConcurrent::run(
-        [cache = modelCache_, img = originalImage_, options,
+        [remover, img = originalImage_, options,
          generation, errModel, errOnnx, errGeneric, errUnknown]()
             -> SingleResult {
             try {
-                const std::shared_ptr<BackgroundRemover> r =
-                    obtainRemover(cache, options.modelPath);
-                if (!r)
+                if (!remover)
                     return { QImage(), errModel, generation };
                 return { ImagePostProcessor::apply(
-                             r->removeBackground(img), options),
+                             remover->removeBackground(img), options),
                          QString(), generation };
             } catch (const Ort::Exception& e) {
                 return { QImage(),
                          errOnnx + QString::fromUtf8(e.what()),
                          generation };
             } catch (const std::exception& e) {
+                const QString msg = QString::fromUtf8(e.what());
+                if (msg.contains("cancelada", Qt::CaseInsensitive) || msg.contains("cancelled", Qt::CaseInsensitive)) {
+                    return { QImage(), TR("Inferência cancelada pelo usuário.", "Inference cancelled by user."), generation };
+                }
                 return { QImage(),
-                         errGeneric + QString::fromUtf8(e.what()),
+                         errGeneric + msg,
                          generation };
             } catch (...) {
                 // Uma excecao desconhecida nao pode escapar do
@@ -1236,6 +1295,11 @@ void MainWindow::removeBackground() {
                 return { QImage(), errUnknown, generation };
             }
         }));
+
+    // Limpar referencia ao terminar
+    QObject::connect(&removeWatcher_, &QFutureWatcher<SingleResult>::finished, this, [this](){
+        currentRemover_.reset();
+    });
 }
 
 void MainWindow::onRemoveFinished()
@@ -1272,8 +1336,7 @@ void MainWindow::onRemoveFinished()
         return;
     }
     resultImage_ = res.image;
-    maskEditCanvas_->setImage(resultImage_, currentBackgroundColor());
-    setResult(resultImage_);
+    updateResultDisplay();
     btnAutoCrop_->setEnabled(true);
     btnDragOut_->setEnabled(true);
     logEdit_->appendPlainText("[OK] " + TR("Fundo removido.",
@@ -1342,9 +1405,18 @@ void MainWindow::saveResult() {
     const QImage toSave = ImagePostProcessor::apply(
         resultImage_, saveOptions, originalImage_);
 
-    if (!toSave.save(path, fmt.constData())) {
+    QImageWriter writer(path, fmt);
+    if (extension == "png" && saveOptions.pngCompression >= 0) {
+        writer.setQuality(-1); // PNG usa compressão, não quality
+        writer.setCompression(saveOptions.pngCompression);
+    } else if (extension == "jpg") {
+        writer.setQuality(saveOptions.jpegQuality);
+    } else if (extension == "webp") {
+        writer.setQuality(saveOptions.webpQuality);
+    }
+    if (!writer.write(toSave)) {
         QMessageBox::critical(this, TR("Erro", "Error"),
-            TR("Não foi possível salvar:\n", "Could not save:\n") + path);
+            TR("Não foi possível salvar:\n", "Could not save:\n") + path + "\n" + writer.errorString());
     } else {
         settings.setValue("output/lastSaveDir",
                           QFileInfo(path).absolutePath());
@@ -1396,6 +1468,39 @@ void MainWindow::copyResult()
     logEdit_->appendPlainText(
         "[OK] " + TR("Resultado copiado para a area de transferencia.",
                      "Result copied to the clipboard."));
+}
+
+void MainWindow::copyTransparentResult()
+{
+    if (isBusy_) return;
+    if (resultImage_.isNull()) {
+        QMessageBox::warning(this, TR("Aviso", "Warning"),
+            TR("Remova o fundo primeiro.", "Remove the background first."));
+        return;
+    }
+    // Use resultImage directly without applying background/blurring.
+    QImage img = resultImage_.convertToFormat(QImage::Format_RGBA8888);
+
+    // Encode as PNG via QBuffer to guarantee PNG format.
+    QByteArray pngData;
+    QBuffer buffer(&pngData);
+    buffer.open(QIODevice::WriteOnly);
+    QImageWriter writer(&buffer, "PNG");
+    if (!writer.write(img)) {
+        QMessageBox::warning(this, TR("Aviso", "Warning"),
+            TR("Falha ao codificar PNG para a área de transferência.",
+               "Failed to encode PNG for clipboard."));
+        return;
+    }
+
+    QMimeData *mime = new QMimeData;
+    mime->setData("image/png", pngData);
+    mime->setImageData(img);
+    QApplication::clipboard()->setMimeData(mime);
+
+    logEdit_->appendPlainText(
+        "[OK] " + TR("PNG transparente copiado para a área de transferência.",
+                     "Transparent PNG copied to clipboard."));
 }
 
 void MainWindow::onSaveFormatChanged(int index)
@@ -1550,15 +1655,23 @@ void MainWindow::setUiBusy(bool busy)
 {
     isBusy_ = busy;
     btnOpen_->setEnabled(!busy);
-    btnRemove_->setEnabled(!busy);
+    if (busy) {
+        btnRemove_->setText(TR("Cancelar", "Cancel"));
+    } else {
+        btnRemove_->setText(TR("Remover fundo", "Remove background"));
+    }
+    btnRemove_->setEnabled(true);
+    // Manter navegação e seleção de modelo ativa durante inferência para responsividade
+    btnLoadModel_->setEnabled(true);
+    modelCombo_->setEnabled(true);
+    modelPathEdit_->setEnabled(true);
+    btnThemeToggle_->setEnabled(true);
     btnSave_->setEnabled(!busy);
     btnCopy_->setEnabled(!busy);
+    btnCopyTransparent_->setEnabled(!busy);
     btnSelectFolder_->setEnabled(!busy);
     btnSelectOutput_->setEnabled(!busy);
-    btnLoadModel_->setEnabled(!busy);
     btnProcessBatch_->setEnabled(!busy);
-    modelCombo_->setEnabled(!busy);
-    modelPathEdit_->setEnabled(!busy);
     folderEdit_->setEnabled(!busy);
     outputDirEdit_->setEnabled(!busy);
     saveFormatCombo_->setEnabled(!busy);
@@ -1580,8 +1693,6 @@ void MainWindow::setUiBusy(bool busy)
     brushRadiusSpin_->setEnabled(!busy);
     btnAutoCrop_->setEnabled(!busy && !resultImage_.isNull());
     btnDragOut_->setEnabled(!busy && !resultImage_.isNull());
-    // O canvas nao pode aceitar pinceladas enquanto a inferencia
-    // decorre: as edicoes seriam substituidas pelo resultado novo.
     maskEditCanvas_->setEnabled(!busy);
     btnUndo_->setEnabled(!busy && maskEditCanvas_->canUndo());
     btnRedo_->setEnabled(!busy && maskEditCanvas_->canRedo());
@@ -1976,9 +2087,7 @@ void MainWindow::processBatchStep() {
             try {
                 // setAutoTransform respeita a orientacao EXIF, como no
                 // CLI; sem isto fotos de telemovel saiam rodadas no lote.
-                QImageReader reader(in);
-                reader.setAutoTransform(true);
-                const QImage img = reader.read();
+                const QImage img = ImagePostProcessor::loadImageExif(in);
                 if (img.isNull())
                     return errLoad;
                 const std::shared_ptr<BackgroundRemover> r =
@@ -2055,6 +2164,22 @@ void MainWindow::setResult(const QImage& img) {
     updatePreviewZoom();
 }
 
+void MainWindow::updateResultDisplay() {
+    if (resultImage_.isNull()) {
+        maskEditCanvas_->setImage(QImage(), QColor());
+        return;
+    }
+    if (showMaskPreview_) {
+        QImage maskImg = ImagePostProcessor::visualizeMask(resultImage_, true);
+        maskEditCanvas_->setImage(maskImg, QColor());
+        maskEditCanvas_->setEnabled(false);
+    } else {
+        maskEditCanvas_->setEnabled(true);
+        maskEditCanvas_->setImage(resultImage_, currentBackgroundColor());
+    }
+    updatePreviewZoom();
+}
+
 void MainWindow::pasteImageFromClipboard()
 {
     if (isBusy_) return;
@@ -2111,8 +2236,7 @@ void MainWindow::autoCropResult()
     }
 
     resultImage_ = cropped;
-    maskEditCanvas_->setImage(resultImage_, currentBackgroundColor());
-    setResult(resultImage_);
+    updateResultDisplay();
     logEdit_->appendPlainText(QString("[OK] %1: %2x%3")
         .arg(TR("Auto-recorte aplicado", "Auto-crop applied"))
         .arg(resultImage_.width())
@@ -2124,27 +2248,58 @@ void MainWindow::presetChanged(int index)
     const QSignalBlocker bBg(bgColorCombo_);
     const QSignalBlocker bSticker(stickerCheckBox_);
     const QSignalBlocker bShadow(shadowCheckBox_);
+    const QSignalBlocker bRefine(refineCheckBox_);
+    const QSignalBlocker bNoise(noiseCheckBox_);
+    const QSignalBlocker bNoiseThresh(noiseThresholdSpin_);
 
     switch (index) {
     case 1: // Padrão (Transparente)
         bgColorCombo_->setCurrentIndex(0);
         stickerCheckBox_->setChecked(false);
         shadowCheckBox_->setChecked(false);
+        refineCheckBox_->setChecked(true);
+        noiseCheckBox_->setChecked(false);
+        noiseThresholdSpin_->setValue(30);
         break;
     case 2: // E-commerce (Branco + Sombra)
         bgColorCombo_->setCurrentIndex(1); // Branco
         stickerCheckBox_->setChecked(false);
         shadowCheckBox_->setChecked(true);
+        refineCheckBox_->setChecked(true);
+        noiseCheckBox_->setChecked(true);
+        noiseThresholdSpin_->setValue(25);
         break;
     case 3: // Sticker (Contorno Branco)
         bgColorCombo_->setCurrentIndex(0); // Transparente
         stickerCheckBox_->setChecked(true);
         shadowCheckBox_->setChecked(false);
+        refineCheckBox_->setChecked(true);
+        noiseCheckBox_->setChecked(false);
+        noiseThresholdSpin_->setValue(30);
         break;
     case 4: // Retrato (Fundo Desfocado)
         bgColorCombo_->setCurrentIndex(4); // Desfoque original
         stickerCheckBox_->setChecked(false);
         shadowCheckBox_->setChecked(false);
+        refineCheckBox_->setChecked(true);
+        noiseCheckBox_->setChecked(true);
+        noiseThresholdSpin_->setValue(20);
+        break;
+    case 5: // Documento (Recorte justo)
+        bgColorCombo_->setCurrentIndex(1); // Branco
+        stickerCheckBox_->setChecked(false);
+        shadowCheckBox_->setChecked(false);
+        refineCheckBox_->setChecked(false);
+        noiseCheckBox_->setChecked(false);
+        noiseThresholdSpin_->setValue(15);
+        break;
+    case 6: // Arte Pixel (Chroma key tolerância baixa)
+        bgColorCombo_->setCurrentIndex(0); // Transparente
+        stickerCheckBox_->setChecked(false);
+        shadowCheckBox_->setChecked(false);
+        refineCheckBox_->setChecked(false);
+        noiseCheckBox_->setChecked(false);
+        noiseThresholdSpin_->setValue(10);
         break;
     default:
         break;
@@ -2244,8 +2399,7 @@ void MainWindow::removeByColor()
         originalImage_, keyColor_, tol, contiguous, pixelArt);
 
     resultImage_ = removed;
-    maskEditCanvas_->setImage(resultImage_, currentBackgroundColor());
-    setResult(resultImage_);
+    updateResultDisplay();
     btnAutoCrop_->setEnabled(true);
     btnDragOut_->setEnabled(true);
 

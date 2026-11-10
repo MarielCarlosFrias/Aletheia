@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setOrganizationName("aletheia");
     QApplication::setApplicationName("aletheia");
-    QApplication::setWindowIcon(QIcon(":/assets/aletheia.png"));
+    QApplication::setWindowIcon(QIcon(":/assets/aletheia.svg"));
 
     // Tema escuro/claro: env ALETHEIA_THEME=dark|light tem prioridade
     // (BG_REMOVER_THEME ainda funciona), caso contrario usa (e grava em)

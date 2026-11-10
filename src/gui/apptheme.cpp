@@ -104,8 +104,7 @@ QString stylesheet(bool dark)
              .arg(inputBg, border);
     q += QString("QLabel#brandMark { min-width: 24px; max-width: 24px;"
                  " min-height: 24px; max-height: 24px;"
-                 " background: #36c66a; color: #102217; border-radius: 7px;"
-                 " font-weight: 800; qproperty-alignment: AlignCenter; }\n");
+                 " background: transparent; border: 0; }\n");
     q += QString("QLabel#appTitle { color: %1; font-size: 15px;"
                  " font-weight: 600; }\n").arg(text);
     q += QString("QLabel#appSubtitle, QLabel#imageName,"

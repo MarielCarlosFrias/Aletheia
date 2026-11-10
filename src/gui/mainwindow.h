@@ -73,6 +73,7 @@ private slots:
     void onRemoveFinished();
     void saveResult();
     void copyResult();
+    void copyTransparentResult();
     void loadModel();
     void selectFolder();
     void selectOutputFolder();
@@ -107,6 +108,7 @@ private:
     void updatePreviewZoom();
     void setOriginal(const QImage& img);
     void setResult(const QImage& img);
+    void updateResultDisplay();
     void setUiBusy(bool busy);
     void finishBatch();
     // Fecha a janela depois de a inferencia/lote em curso terminar.
@@ -150,6 +152,8 @@ private:
     QPushButton* btnRemove_;
     QPushButton* btnSave_;
     QPushButton* btnCopy_;
+    QPushButton* btnCopyTransparent_;
+    QAction* actCopyTransparent_;
     QPushButton* btnLoadModel_;
     QPushButton* btnSelectFolder_;
     QPushButton* btnSelectOutput_;
@@ -206,6 +210,8 @@ private:
     bool closeRequested_ = false;
     QColor customBgColor_;
     int previewZoomPercent_;
+    bool showMaskPreview_ = false;
+    QAction *actionShowMaskPreview_ = nullptr;
 
     QImage originalImage_;
     QImage resultImage_;
@@ -214,6 +220,7 @@ private:
     // inferencias antigas sao descartados em onRemoveFinished().
     quint64 imageGeneration_ = 0;
     std::shared_ptr<ModelCache> modelCache_;
+    std::shared_ptr<BackgroundRemover> currentRemover_;
     QNetworkAccessManager* updateNam_ = nullptr;
     QString latestRemoteVersion_;
     QFutureWatcher<SingleResult> removeWatcher_;

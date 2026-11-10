@@ -134,6 +134,12 @@ add_executable(aletheia
     src/gui/main.cpp
     src/gui/mainwindow.cpp
     src/gui/mainwindow.h
+    src/gui/batchtabcontroller.cpp
+    src/gui/batchtabcontroller.h
+    src/gui/inferenceworker.cpp
+    src/gui/inferenceworker.h
+    src/gui/previewinspector.cpp
+    src/gui/previewinspector.h
     src/gui/maskeditcanvas.cpp
     src/gui/maskeditcanvas.h
     src/gui/helpwidget.cpp
@@ -157,7 +163,7 @@ add_executable(aletheia
     src/core/backgroundremover.h)
 qt_add_resources(aletheia "aletheia_icon"
     PREFIX "/"
-    FILES assets/aletheia.png)
+    FILES assets/aletheia.svg)
 target_link_libraries(aletheia
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Concurrent
     onnxruntime)
@@ -355,6 +361,22 @@ add_test(NAME inference_test
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
     set_tests_properties(inference_test PROPERTIES DISABLED TRUE)
     message(STATUS "Teste de inferencia desativado: u2netp.onnx nao encontrado")
+endif()
+
+add_executable(test_visual_regression
+    tests/test_visual_regression.cpp
+    src/core/backgroundremover.cpp
+    src/core/backgroundremover.h
+    src/core/imagepostprocessor.cpp
+    src/core/imagepostprocessor.h
+    src/core/processingoptions.h)
+target_link_libraries(test_visual_regression
+    Qt6::Core Qt6::Gui onnxruntime)
+add_test(NAME visual_regression_test
+    COMMAND test_visual_regression "${CMAKE_SOURCE_DIR}/u2netp.onnx")
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/u2netp.onnx")
+    set_tests_properties(visual_regression_test PROPERTIES DISABLED TRUE)
+    message(STATUS "Teste de regressão visual desativado: u2netp.onnx não encontrado")
 endif()
 
 if(WIN32)

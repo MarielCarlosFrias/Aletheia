@@ -46,6 +46,11 @@ public:
 
     // Carrega uma imagem respeitando a orientação EXIF (fotos de telemóvel).
     static QImage loadImage(const QString& path);
+    // Função centralizada para carregamento com correção EXIF.
+    static QImage loadImageExif(const QString& path);
+
+    // Visualização da máscara alfa para inspeção rápida (escala de cinza sobre fundo vermelho/verde).
+    static QImage visualizeMask(const QImage& rgbaImage, bool overlay = true);
 };
 
 #endif

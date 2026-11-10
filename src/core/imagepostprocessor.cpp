@@ -104,9 +104,51 @@ QImage ImagePostProcessor::compositeBackground(
 
 QImage ImagePostProcessor::loadImage(const QString& path)
 {
+    return loadImageExif(path);
+}
+
+QImage ImagePostProcessor::loadImageExif(const QString& path)
+{
     QImageReader reader(path);
     reader.setAutoTransform(true);
     return reader.read();
+}
+
+QImage ImagePostProcessor::visualizeMask(const QImage& rgbaImage, bool overlay)
+{
+    if (rgbaImage.isNull()) return QImage();
+    QImage img = rgbaImage.convertToFormat(QImage::Format_RGBA8888);
+    const int w = img.width();
+    const int h = img.height();
+    QImage out(w, h, QImage::Format_RGB888);
+    QPainter p(&out);
+    if (overlay) {
+        // Fundo vermelho; máscara verde sobreposta para destacar contornos
+        p.fillRect(out.rect(), QColor(255, 0, 0));
+    } else {
+        p.fillRect(out.rect(), Qt::black);
+    }
+    p.end();
+
+    // Copiar canal alfa como brilho
+    for (int y = 0; y < h; ++y) {
+        const QRgb* srcRow = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+        QRgb* dstRow = reinterpret_cast<QRgb*>(out.scanLine(y));
+        for (int x = 0; x < w; ++x) {
+            const int a = qAlpha(srcRow[x]);
+            if (overlay) {
+                // misturar vermelho com verde proporcional ao alpha
+                const int r = 255 - a;
+                const int g = a;
+                const int b = 0;
+                dstRow[x] = qRgb(r, g, b);
+            } else {
+                const int v = a;
+                dstRow[x] = qRgb(v, v, v);
+            }
+        }
+    }
+    return out;
 }
 
 QRect ImagePostProcessor::contentBounds(const QImage& img, int alphaThreshold)

@@ -1,6 +1,11 @@
 #include "backgroundremover.h"
 #include <QDebug>
 #include <QFileInfo>
+#include <QCryptographicHash>
+#include <QFile>
+#include <QSettings>
+#include <QDateTime>
+#include <QUrl>
 #include <cmath>
 #include <algorithm>
 #include <array>
@@ -10,6 +15,51 @@
 // Constantes ImageNet
 static constexpr float MEAN[3] = {0.485f, 0.456f, 0.406f};
 static constexpr float STD[3]  = {0.229f, 0.224f, 0.225f};
+
+std::mutex BackgroundRemover::cacheMutex_;
+std::unordered_map<QString, std::weak_ptr<BackgroundRemover>> BackgroundRemover::cache_;
+
+static QString getSettingsKey(const QString& path) {
+    return QString::fromLatin1(QUrl::toPercentEncoding(path));
+}
+
+QString BackgroundRemover::computeSha256(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!file.atEnd()) {
+        QByteArray buffer = file.read(8192);
+        if (buffer.isEmpty() && !file.atEnd()) {
+            // erro de leitura
+            break;
+        }
+        hash.addData(buffer);
+    }
+    return hash.result().toHex();
+}
+
+void BackgroundRemover::saveModelMetadata(const QString& path, const QString& sha) {
+    if (sha.isEmpty())
+        return;
+    QSettings settings("bg-remover", "BackgroundRemover");
+    settings.beginGroup("Models");
+    QString key = getSettingsKey(path);
+    settings.setValue(key + "/sha", sha);
+    settings.setValue(key + "/timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
+    settings.setValue(key + "/path", path);
+    settings.endGroup();
+}
+
+QString BackgroundRemover::loadModelMetadataSha(const QString& path) {
+    QSettings settings("bg-remover", "BackgroundRemover");
+    settings.beginGroup("Models");
+    QString key = getSettingsKey(path);
+    QString sha = settings.value(key + "/sha").toString();
+    settings.endGroup();
+    return sha;
+}
 
 BackgroundRemover::BackgroundRemover(const QString& modelPath)
     : env_(ORT_LOGGING_LEVEL_WARNING, "aletheia"),
@@ -48,6 +98,52 @@ BackgroundRemover::BackgroundRemover(const QString& modelPath)
              QString::fromStdString(input_name_),
              sizeStr,
              QString::fromStdString(output_name_));
+
+    // Persistir metadados para cache entre sessões
+    QString sha = BackgroundRemover::computeSha256(modelPath);
+    if (!sha.isEmpty()) {
+        BackgroundRemover::saveModelMetadata(modelPath, sha);
+    }
+}
+
+std::shared_ptr<BackgroundRemover> BackgroundRemover::get(const QString& modelPath) {
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    auto it = cache_.find(modelPath);
+    if (it != cache_.end()) {
+        if (auto sp = it->second.lock()) {
+            // Verificar se o ficheiro mudou desde a última validação
+            QString storedSha = loadModelMetadataSha(modelPath);
+            QString currentSha = computeSha256(modelPath);
+            if (!storedSha.isEmpty() && storedSha == currentSha) {
+                return sp; // sessão já validada, reutilizar
+            } else {
+                // modelo alterado ou metadados inválidos: invalidar cache
+                cache_.erase(it);
+                // opcional: limpar metadados antigos
+            }
+        } else {
+            cache_.erase(it);
+        }
+    }
+    auto sp = std::make_shared<BackgroundRemover>(modelPath);
+    cache_[modelPath] = sp;
+    return sp;
+}
+
+void BackgroundRemover::requestCancel() {
+    cancelRequested_.store(true);
+    Ort::RunOptions* opts = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(runMutex_);
+        opts = activeRunOptions_;
+    }
+    if (opts) {
+        try {
+            opts->SetTerminate();
+        } catch (...) {
+            // ignorar falhas de cancelamento
+        }
+    }
 }
 
 // U2-Net/Silueta trabalham a 320x320; a geracao ISNet a 1024x1024.
@@ -84,9 +180,18 @@ QImage BackgroundRemover::removeBackground(const QImage& input) {
     if (input.isNull()) {
         throw std::invalid_argument("A imagem de entrada e invalida");
     }
+    if (cancelRequested_.load()) {
+        cancelRequested_.store(false);
+        throw std::runtime_error("Inferência cancelada pelo usuário");
+    }
 
     const int size = input_size_;
     std::vector<float> blob = buildInputBlob(input);
+
+    if (cancelRequested_.load()) {
+        cancelRequested_.store(false);
+        throw std::runtime_error("Inferência cancelada pelo usuário");
+    }
 
     std::vector<int64_t> input_shape = {1, 3, size, size};
     Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(
@@ -98,10 +203,31 @@ QImage BackgroundRemover::removeBackground(const QImage& input) {
     const char* in_name  = input_name_.c_str();
     const char* out_name = output_name_.c_str();
 
-    auto outputs = session_.Run(
-        Ort::RunOptions{nullptr},
-        &in_name, &input_tensor, 1,
-        &out_name, 1);
+    Ort::RunOptions runOptions;
+    {
+        std::lock_guard<std::mutex> lock(runMutex_);
+        activeRunOptions_ = &runOptions;
+    }
+
+    std::vector<Ort::Value> outputs;
+    try {
+        outputs = session_.Run(
+            runOptions,
+            &in_name, &input_tensor, 1,
+            &out_name, 1);
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(runMutex_);
+        activeRunOptions_ = nullptr;
+        throw;
+    }
+    {
+        std::lock_guard<std::mutex> lock(runMutex_);
+        activeRunOptions_ = nullptr;
+    }
+
+    if (cancelRequested_.load()) {
+        throw std::runtime_error("Inferência cancelada pelo usuário");
+    }
 
     if (outputs.empty() || !outputs[0].IsTensor()) {
         throw std::runtime_error("O modelo nao retornou uma mascara tensorial");
@@ -181,6 +307,18 @@ QImage BackgroundRemover::buildAlphaMask(
     const float* mask, int mask_w, int mask_h,
     int orig_w, int orig_h) const
 {
+    // Detecção automática de logit vs probabilidade.
+    // Amostra rápida para evitar varrer toda a máscara duas vezes.
+    const int totalPixels = mask_w * mask_h;
+    const int sample = std::min(totalPixels, 10000);
+    bool needsSigmoid = false;
+    for (int i = 0; i < sample; ++i) {
+        const float v = mask[i];
+        if (v < -0.1f || v > 1.1f) {
+            needsSigmoid = true;
+            break;
+        }
+    }
     // U2-Net/ISNet ja devolvem probabilidades 0..1 (sigmoid na ultima
     // camada). O clamp direto mantem as bordas fieis; a normalizacao
     // min-max anterior esticava o contraste e saturava o fundo quando
@@ -190,7 +328,15 @@ QImage BackgroundRemover::buildAlphaMask(
         quint8* row = mask_img.scanLine(y);
         const float* src = mask + static_cast<size_t>(y) * mask_w;
         for (int x = 0; x < mask_w; ++x) {
-            const float v = std::clamp(src[x], 0.0f, 1.0f);
+            float v = src[x];
+            if (needsSigmoid) {
+                // Sigmoid estável para evitar overflow
+                if (v >  20.0f) v = 1.0f;
+                else if (v < -20.0f) v = 0.0f;
+                else v = 1.0f / (1.0f + std::exp(-v));
+            } else {
+                v = std::clamp(v, 0.0f, 1.0f);
+            }
             row[x] = static_cast<quint8>(v * 255.0f + 0.5f);
         }
     }

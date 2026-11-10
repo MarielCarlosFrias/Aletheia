@@ -12,6 +12,11 @@ struct ProcessingOptions {
     float edgeRefinementIntensity = 0.5f;
     QColor backgroundColor;
     QString outputFormat; // "png", "jpg", "webp" - formato de saida
+    // Qualidade/compressão de exportação
+    int pngCompression = -1; // -1 = padrão do Qt, 0-9 (0 = sem compressão, 9 = máxima)
+    int jpegQuality = 90;    // 0-100
+    int webpQuality = 90;    // 0-100
+    int maxConcurrentImages = 1;
 
     enum BackgroundStyle {
         BgTransparent,

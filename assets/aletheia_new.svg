@@ -1,0 +1,54 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="rounded">
+      <rect x="16" y="16" width="224" height="224" rx="48" ry="48"/>
+    </clipPath>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <!-- fundo xadrez -->
+  <rect width="256" height="256" fill="#f1f5f9"/>
+  <g clip-path="url(#rounded)">
+    <rect x="0" y="0" width="256" height="256" fill="#e2e8f0"/>
+    <g fill="#f8fafc">
+      <rect x="0" y="0" width="32" height="32"/>
+      <rect x="64" y="0" width="32" height="32"/>
+      <rect x="128" y="0" width="32" height="32"/>
+      <rect x="192" y="0" width="32" height="32"/>
+      <rect x="32" y="32" width="32" height="32"/>
+      <rect x="96" y="32" width="32" height="32"/>
+      <rect x="160" y="32" width="32" height="32"/>
+      <rect x="224" y="32" width="32" height="32"/>
+      <rect x="0" y="64" width="32" height="32"/>
+      <rect x="64" y="64" width="32" height="32"/>
+      <rect x="128" y="64" width="32" height="32"/>
+      <rect x="192" y="64" width="32" height="32"/>
+      <rect x="32" y="96" width="32" height="32"/>
+      <rect x="96" y="96" width="32" height="32"/>
+      <rect x="160" y="96" width="32" height="32"/>
+      <rect x="224" y="96" width="32" height="32"/>
+      <rect x="0" y="128" width="32" height="32"/>
+      <rect x="64" y="128" width="32" height="32"/>
+      <rect x="128" y="128" width="32" height="32"/>
+      <rect x="192" y="128" width="32" height="32"/>
+      <rect x="32" y="160" width="32" height="32"/>
+      <rect x="96" y="160" width="32" height="32"/>
+      <rect x="160" y="160" width="32" height="32"/>
+      <rect x="224" y="160" width="32" height="32"/>
+      <rect x="0" y="192" width="32" height="32"/>
+      <rect x="64" y="192" width="32" height="32"/>
+      <rect x="128" y="192" width="32" height="32"/>
+      <rect x="192" y="192" width="32" height="32"/>
+    </g>
+    <!-- silhueta -->
+    <g fill="url(#g)">
+      <circle cx="128" cy="96" r="38"/>
+      <path d="M64 220 C64 160 96 120 128 120 C160 120 192 160 192 220 Z"/>
+    </g>
+    <!-- contorno de seleção -->
+    <path d="M64 220 C64 160 96 120 128 120 C160 120 192 160 192 220 Z" fill="none" stroke="white" stroke-width="4" stroke-dasharray="8 6" opacity="0.9"/>
+    <circle cx="128" cy="96" r="38" fill="none" stroke="white" stroke-width="4" stroke-dasharray="8 6" opacity="0.9"/>
+  </g>
+</svg>
