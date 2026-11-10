@@ -129,9 +129,14 @@ private:
     ProcessingOptions currentProcessingOptions() const;
     QColor currentBackgroundColor() const;
 
+    // Carrega (ou reutiliza) a sessao ONNX do modelo indicado.
+    // Devolve nullptr se o modelo nao existir ou for invalido; nesse
+    // caso errorMessage recebe o motivo, para a GUI poder mostrar uma
+    // mensagem util em vez de abortar.
     static std::shared_ptr<BackgroundRemover> obtainRemover(
         const std::shared_ptr<ModelCache>& cache,
-        const QString& modelPath);
+        const QString& modelPath,
+        QString* errorMessage = nullptr);
 
     QStackedWidget* workspaceStack_ = nullptr;
     QWidget* dropZoneWidget_ = nullptr;

@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QImage>
+#include <QImageReader>
 #include <QTemporaryDir>
 #include <cstdio>
 
@@ -94,6 +95,42 @@ int main(int argc, char* argv[])
           "caso2: todas as imagens contam como erro");
     CHECK(!bad.errorMessages.isEmpty(),
           "caso2: mensagem de erro do modelo presente");
+
+    // ---- Caso 3: o formato de saida define a extensao do ficheiro ----
+    // Antes, "-f jpg" gravava JPEG dentro de um ficheiro .png: nome e
+    // conteudo discordantes, e o filtro de imagens do lote nao os
+    // reconhecia.
+    const QString jpgDir = tmp.path() + "/jpg";
+    QDir().mkpath(jpgDir);
+    CHECK(valid.save(jpgDir + "/c_foto.png", "PNG"),
+          "caso3: imagem de origem criada");
+    ProcessingOptions jpgOptions;
+    jpgOptions.modelPath = modelPath;
+    jpgOptions.outputFormat = QStringLiteral("jpg");
+    BatchProcessor jpgProcessor(jpgOptions);
+    const BatchProcessor::Result jpg =
+        jpgProcessor.processDirectory(jpgDir, jpgDir);
+
+    CHECK(!jpg.fatal, "caso3: formato jpg aceite");
+    CHECK(jpg.ok == 1, "caso3: imagem processada em jpg");
+    CHECK(QFile::exists(jpgDir + "/c_foto_rembg.jpg"),
+          "caso3: extensao .jpg no ficheiro de saida");
+    CHECK(!QFile::exists(jpgDir + "/c_foto_rembg.png"),
+          "caso3: nao ha ficheiro .png com conteudo jpeg");
+    {
+        QImageReader reader(jpgDir + "/c_foto_rembg.jpg");
+        CHECK(reader.format() == "jpeg",
+              "caso3: o conteudo do ficheiro e JPEG");
+    }
+
+    // ---- Caso 4: formato de saida invalido e fatal ----
+    ProcessingOptions badFormatOptions;
+    badFormatOptions.modelPath = modelPath;
+    badFormatOptions.outputFormat = QStringLiteral("tiff");
+    BatchProcessor badFormatProcessor(badFormatOptions);
+    const BatchProcessor::Result badFormat =
+        badFormatProcessor.processDirectory(jpgDir, jpgDir);
+    CHECK(badFormat.fatal, "caso4: formato invalido -> fatal");
 
     if (failures == 0)
         std::printf("Todos os testes do BatchProcessor passaram.\n");

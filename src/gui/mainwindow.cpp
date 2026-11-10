@@ -1264,7 +1264,32 @@ void MainWindow::removeBackground() {
     const quint64 generation = imageGeneration_;
 
     // Obtem remover antes de iniciar a thread para poder cancelar.
-    const auto remover = obtainRemover(modelCache_, options.modelPath);
+    // Se o modelo nao existir ou for invalido, obtainRemover devolve
+    // nullptr com o motivo: mostra-se o erro e a janela fica utilizavel
+    // (antes a excecao do ONNX abortava a aplicacao).
+    QString modelError;
+    const auto remover =
+        obtainRemover(modelCache_, options.modelPath, &modelError);
+    if (!remover) {
+        setUiBusy(false);
+        progressBar_->setVisible(false);
+        progressBar_->setRange(0, 100);
+        const QString detail = modelError.isEmpty()
+            ? errModel
+            : errModel + QStringLiteral(": ") + modelError;
+        logEdit_->appendPlainText("[ERROR] " + detail);
+        // Sinal antes do dialogo: consumidores automaticos (ex.: a
+        // ferramenta de screenshots em modo offscreen) nao ficam
+        // bloqueados por uma caixa modal.
+        emit jobFinished();
+        if (!closeRequested_) {
+            QMessageBox::critical(this, TR("Erro", "Error"),
+                TR("Falha ao carregar o modelo:\n",
+                   "Failed to load the model:\n") + detail);
+        }
+        maybeCloseAfterJobs();
+        return;
+    }
     currentRemover_ = remover;
 
     removeWatcher_.setFuture(QtConcurrent::run(
@@ -1710,8 +1735,10 @@ void MainWindow::resetModel()
 
 std::shared_ptr<BackgroundRemover> MainWindow::obtainRemover(
     const std::shared_ptr<ModelCache>& cache,
-    const QString& modelPath)
+    const QString& modelPath,
+    QString* errorMessage)
 {
+    if (errorMessage) errorMessage->clear();
     if (!cache) return nullptr;
     {
         QMutexLocker lock(&cache->mutex);
@@ -1722,7 +1749,22 @@ std::shared_ptr<BackgroundRemover> MainWindow::obtainRemover(
     // Carrega fora do lock: a GUI pode chamar resetModel() enquanto o
     // ONNX carrega (segundos) sem ficar bloqueada. Se outra thread
     // carregar o mesmo modelo entretanto, reutiliza-se essa sessao.
-    const auto loaded = std::make_shared<BackgroundRemover>(modelPath);
+    // Ort::Session lanca Ort::Exception quando o ficheiro nao existe ou
+    // e invalido: sem este try/catch a exceciao escapava do slot da
+    // GUI e abortava a aplicacao (SIGABRT).
+    std::shared_ptr<BackgroundRemover> loaded;
+    try {
+        loaded = std::make_shared<BackgroundRemover>(modelPath);
+    } catch (const Ort::Exception& e) {
+        if (errorMessage)
+            *errorMessage = QString::fromUtf8(e.what());
+        return nullptr;
+    } catch (const std::exception& e) {
+        if (errorMessage)
+            *errorMessage = QString::fromUtf8(e.what());
+        return nullptr;
+    }
+
     {
         QMutexLocker lock(&cache->mutex);
         if (cache->remover && cache->loadedPath == modelPath)
@@ -2090,9 +2132,14 @@ void MainWindow::processBatchStep() {
                 const QImage img = ImagePostProcessor::loadImageExif(in);
                 if (img.isNull())
                     return errLoad;
+                QString modelError;
                 const std::shared_ptr<BackgroundRemover> r =
-                    obtainRemover(cache, options.modelPath);
-                if (!r) return errModel;
+                    obtainRemover(cache, options.modelPath, &modelError);
+                if (!r) {
+                    return modelError.isEmpty()
+                        ? errModel
+                        : errModel + QStringLiteral(": ") + modelError;
+                }
                 const QImage processed = ImagePostProcessor::apply(
                     r->removeBackground(img), options);
                 if (!processed.save(out, format.toUtf8().constData()))

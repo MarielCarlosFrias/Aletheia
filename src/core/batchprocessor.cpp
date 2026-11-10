@@ -44,12 +44,53 @@ BatchProcessor::Result BatchProcessor::processDirectory(
         return result;
     }
 
+    // Formato de saida: o formato pedido decide tanto o codigo do
+    // escritor como a extensao dos ficheiros. Antes o plano era criado
+    // sem extensao, pelo que "-f jpg" gravava JPEG dentro de ficheiros
+    // .png (nome e conteudo discordantes).
+    const QString requested = options_.outputFormat.trimmed().toLower();
+    QString writerFormat = QStringLiteral("png");
+    QString extension = QStringLiteral("png");
+    if (requested.isEmpty() || requested == "png") {
+        writerFormat = QStringLiteral("png");
+        extension = QStringLiteral("png");
+    } else if (requested == "jpg" || requested == "jpeg") {
+        writerFormat = QStringLiteral("jpeg");
+        extension = QStringLiteral("jpg");
+    } else if (requested == "webp") {
+        writerFormat = QStringLiteral("webp");
+        extension = QStringLiteral("webp");
+    } else {
+        std::cerr << I18n::tr("Formato de saida invalido: ",
+                              "Invalid output format: ").toStdString()
+                  << requested.toStdString() << ". "
+                  << I18n::tr("Use png, jpg ou webp.",
+                              "Use png, jpg or webp.").toStdString()
+                  << std::endl;
+        result.fatal = true;
+        return result;
+    }
+
+    // O plugin de escrita tem de existir neste build (o WebP e opcional
+    // no Qt): sem esta verificacao o erro apareceria, imagem a imagem,
+    // como "Falha ao salvar a imagem".
+    if (!QImageWriter::supportedImageFormats().contains(
+            writerFormat.toUtf8())) {
+        std::cerr << I18n::tr("Este build nao suporta o formato pedido: ",
+                              "This build does not support the requested format: ")
+                         .toStdString()
+                  << requested.toStdString() << " ("
+                  << writerFormat.toStdString() << ")" << std::endl;
+        result.fatal = true;
+        return result;
+    }
+
     // Filtragem de imagens e atribuicao de nomes de saida agora
     // compartilhados com a GUI via BatchPlan (antes duplicado aqui
     // e em MainWindow::processBatch). A filtragem e case-insensitive,
     // portanto "foto.JPG" tambem e processado.
     const QList<BatchPlan::Entry> plan =
-        BatchPlan::build(dir, outDir);
+        BatchPlan::build(dir, outDir, extension);
     if (plan.isEmpty()) {
         std::cout << I18n::tr("Nenhuma imagem encontrada em: ",
                               "No images found in: ").toStdString()
@@ -63,12 +104,16 @@ BatchProcessor::Result BatchProcessor::processDirectory(
               << I18n::tr(" imagens...", " images...").toStdString() << std::endl;
 
     try {
-        // Forçar carregamento do modelo para detectar falhas fatais antes do processamento
+        // Carrega o modelo uma vez (deteta falhas fatais antes de
+        // processar). A sessao e reutilizada por todas as imagens: evita
+        // re-hashear o modelo e recarrega-lo a cada ficheiro.
         auto modelCheck = BackgroundRemover::get(options_.modelPath);
 
-        const QString format = options_.outputFormat.isEmpty()
-            ? QStringLiteral("png")
-            : options_.outputFormat;
+        const QString format = writerFormat;
+        // PNG e WebP suportam canal alfa; JPEG nao.
+        const bool formatHasAlpha =
+            (writerFormat == QLatin1String("png")
+             || writerFormat == QLatin1String("webp"));
 
         int concurrency = std::max(1, options_.maxConcurrentImages);
         QSemaphore sem(concurrency);
@@ -81,7 +126,7 @@ BatchProcessor::Result BatchProcessor::processDirectory(
         for (int i = 0; i < plan.size(); ++i) {
             const auto entry = plan[i];
             const int idx = i;
-            futures.emplace_back(std::async(std::launch::async, [&, entry, idx, format]() {
+            futures.emplace_back(std::async(std::launch::async, [&, entry, idx, format, formatHasAlpha]() {
                 sem.acquire();
                 const QString file = QFileInfo(entry.inputPath).fileName();
                 const QString outName = QFileInfo(entry.outputPath).fileName();
@@ -95,8 +140,20 @@ BatchProcessor::Result BatchProcessor::processDirectory(
                         QMutexLocker clog(&coutMutex);
                         std::cerr << "[ERRO] " << file.toStdString() << ": " << err.toStdString() << std::endl;
                     } else {
-                        auto remover = BackgroundRemover::get(options_.modelPath);
+                        // Reutiliza a sessao carregada uma unica vez:
+                        // chamar get() por imagem re-hasheava o modelo
+                        // inteiro (176 MB) a cada ficheiro.
+                        const std::shared_ptr<BackgroundRemover> remover =
+                            modelCheck;
                         QImage processed = ImagePostProcessor::apply(remover->removeBackground(img), options_);
+                        // JPEG nao tem canal alfa: ao gravar, o Qt
+                        // descartaria o alfa e a area removida ficaria
+                        // com a cor original do fundo. Compomos sobre
+                        // branco, como a GUI faz.
+                        if (!formatHasAlpha && !processed.isNull()) {
+                            processed = ImagePostProcessor::compositeBackground(
+                                processed, Qt::white);
+                        }
                         QImageWriter writer(entry.outputPath, format.toUtf8());
                         if (format == "png" && options_.pngCompression >= 0) {
                             writer.setCompression(options_.pngCompression);

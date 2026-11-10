@@ -212,15 +212,9 @@ int main(int argc, char* argv[])
     CHECK(open && remove && progress && batch && log,
           "controlos de processamento existem");
     if (open && remove && progress && batch && log && canvas) {
-        window.openPath(firstPath);
-        spin();
-        window.removeBackground();
-        spin();
-        CHECK(!open->isEnabled(), "inferencia desativa Abrir");
-        CHECK(!batch->isEnabled(), "inferencia desativa Processar lote");
-        CHECK(progress->isVisible(), "barra de progresso aparece");
-        CHECK(!canvas->isEnabled(), "canvas bloqueado durante inferencia");
-
+        // O sinal e o guard da caixa modal sao ligados ANTES de pedir a
+        // inferencia: sem modelo, a falha acontece de imediato (dentro
+        // do proprio slot) e o dialogo modal bloqueia o teste.
         bool finished = false;
         QEventLoop loop;
         QObject::connect(&window, &MainWindow::jobFinished, &loop,
@@ -228,16 +222,31 @@ int main(int argc, char* argv[])
             finished = true;
             loop.quit();
         });
-        // Em caso de erro, a GUI mostra uma caixa modal; fecha-a para
-        // o teste nao ficar bloqueado.
         QTimer modalGuard;
         QObject::connect(&modalGuard, &QTimer::timeout, []() {
             if (QWidget* modal = QApplication::activeModalWidget())
                 modal->close();
         });
         modalGuard.start(100);
-        QTimer::singleShot(180000, &loop, &QEventLoop::quit);
-        loop.exec();
+
+        window.openPath(firstPath);
+        spin();
+        window.removeBackground();
+        spin();
+        if (hasModel) {
+            // Com modelo valido a inferencia arranca em segundo plano e
+            // a GUI fica ocupada. Sem modelo a falha e imediata (dentro
+            // do slot) e a janela nunca chega a ficar ocupada.
+            CHECK(!open->isEnabled(), "inferencia desativa Abrir");
+            CHECK(!batch->isEnabled(), "inferencia desativa Processar lote");
+            CHECK(progress->isVisible(), "barra de progresso aparece");
+            CHECK(!canvas->isEnabled(), "canvas bloqueado durante inferencia");
+        }
+
+        if (!finished) {
+            QTimer::singleShot(180000, &loop, &QEventLoop::quit);
+            loop.exec();
+        }
         modalGuard.stop();
         spin();
 
@@ -257,7 +266,31 @@ int main(int argc, char* argv[])
         }
     }
 
-    // ---- 10. Lote e salvamento ----
+    // ---- 10. Modelo inexistente: erro amigavel, sem abortar ----
+    // Antes, a excecao do ONNX (ficheiro em falta) escapava do slot e
+    // abortava a aplicacao com SIGABRT. Este e o estado de um
+    // utilizador novo que ainda nao descarregou nenhum modelo.
+    if (modelPath && log) {
+        modelPath->setText(tmp.filePath("modelo_inexistente.onnx"));
+        spin();
+        QTimer missingModelGuard;
+        QObject::connect(&missingModelGuard, &QTimer::timeout, []() {
+            if (QWidget* modal = QApplication::activeModalWidget())
+                modal->close();
+        });
+        missingModelGuard.start(50);
+        window.removeBackground();
+        spin();
+        missingModelGuard.stop();
+        CHECK(log->toPlainText().contains("[ERROR]"),
+              "modelo inexistente: o erro fica registado no log");
+        CHECK(open && open->isEnabled(),
+              "modelo inexistente: a janela continua utilizavel");
+        if (hasModel) modelPath->setText(modelArg);
+        spin();
+    }
+
+    // ---- 11. Lote e salvamento ----
     auto* input = window.findChild<QLineEdit*>("batchInput");
     auto* output = window.findChild<QLineEdit*>("batchOutput");
     auto* save = window.findChild<QPushButton*>("saveButton");

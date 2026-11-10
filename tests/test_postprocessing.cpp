@@ -73,6 +73,55 @@ int main()
         return 1;
     }
 
+    // Teste de visualizeMask: o destino e RGB888 (3 bytes/pixel) e a
+    // origem RGBA8888 (4 bytes/pixel). Escrever com QRgb no destino
+    // corrompia a heap e abortava o processo (ASAN: heap-buffer-overflow).
+    QImage maskSource(4, 2, QImage::Format_RGBA8888);
+    maskSource.setPixel(0, 0, qRgba(10, 20, 30, 0));    // alfa 0
+    maskSource.setPixel(1, 0, qRgba(10, 20, 30, 128));  // alfa 128
+    maskSource.setPixel(2, 0, qRgba(10, 20, 30, 255));  // alfa 255
+    maskSource.setPixel(3, 0, qRgba(10, 20, 30, 64));
+    maskSource.setPixel(0, 1, qRgba(10, 20, 30, 255));
+    maskSource.setPixel(1, 1, qRgba(10, 20, 30, 255));
+    maskSource.setPixel(2, 1, qRgba(10, 20, 30, 255));
+    maskSource.setPixel(3, 1, qRgba(10, 20, 30, 255));
+
+    const QImage maskOverlay =
+        ImagePostProcessor::visualizeMask(maskSource, true);
+    if (maskOverlay.size() != maskSource.size()) {
+        std::cerr << "FAIL: visualizeMask dimensions" << std::endl;
+        return 1;
+    }
+    // Overlay: vermelho (255-a) no canal R, verde (a) no canal G.
+    const QColor overlay0 = maskOverlay.pixelColor(0, 0);
+    const QColor overlay255 = maskOverlay.pixelColor(2, 0);
+    if (overlay0.red() != 255 || overlay0.green() != 0
+        || overlay255.red() != 0 || overlay255.green() != 255
+        || overlay255.blue() != 0) {
+        std::cerr << "FAIL: visualizeMask overlay colors: "
+                  << overlay0.name().toStdString() << " "
+                  << overlay255.name().toStdString() << std::endl;
+        return 1;
+    }
+
+    const QImage maskGrey = ImagePostProcessor::visualizeMask(maskSource, false);
+    const QColor grey128 = maskGrey.pixelColor(1, 0);
+    if (grey128.red() != 128 || grey128.green() != 128
+        || grey128.blue() != 128) {
+        std::cerr << "FAIL: visualizeMask grayscale: "
+                  << grey128.name().toStdString() << std::endl;
+        return 1;
+    }
+
+    // O ultimo pixel da ultima linha e o que rebentava com o
+    // heap-buffer-overflow: escreve 4 bytes num buffer de 3.
+    const QImage maskEdge = ImagePostProcessor::visualizeMask(
+        maskSource, true);
+    if (maskEdge.constScanLine(maskEdge.height() - 1) == nullptr) {
+        std::cerr << "FAIL: visualizeMask scanline" << std::endl;
+        return 1;
+    }
+
     // Teste de detectCornerColor e removeByColor (Pixel Art / Chroma Key)
     QImage sprite(20, 20, QImage::Format_RGBA8888);
     sprite.fill(qRgb(255, 0, 255)); // Magenta de fundo

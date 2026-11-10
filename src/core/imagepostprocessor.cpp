@@ -130,21 +130,23 @@ QImage ImagePostProcessor::visualizeMask(const QImage& rgbaImage, bool overlay)
     }
     p.end();
 
-    // Copiar canal alfa como brilho
+    // Copiar canal alfa como brilho.
+    // Acesso por bytes: a origem e RGBA8888 (4 bytes/pixel) e o destino
+    // e RGB888 (3 bytes/pixel). Escrever com QRgb (4 bytes) num buffer
+    // de 3 bytes corrompia a heap e chegava a abortar a aplicacao.
     for (int y = 0; y < h; ++y) {
-        const QRgb* srcRow = reinterpret_cast<const QRgb*>(img.constScanLine(y));
-        QRgb* dstRow = reinterpret_cast<QRgb*>(out.scanLine(y));
+        const quint8* srcRow = img.constScanLine(y);
+        quint8* dstRow = out.scanLine(y);
         for (int x = 0; x < w; ++x) {
-            const int a = qAlpha(srcRow[x]);
+            const int a = srcRow[x * 4 + 3]; // canal alfa
+            quint8* px = dstRow + x * 3;
             if (overlay) {
                 // misturar vermelho com verde proporcional ao alpha
-                const int r = 255 - a;
-                const int g = a;
-                const int b = 0;
-                dstRow[x] = qRgb(r, g, b);
+                px[0] = static_cast<quint8>(255 - a); // R
+                px[1] = static_cast<quint8>(a);       // G
+                px[2] = 0;                            // B
             } else {
-                const int v = a;
-                dstRow[x] = qRgb(v, v, v);
+                px[0] = px[1] = px[2] = static_cast<quint8>(a);
             }
         }
     }
