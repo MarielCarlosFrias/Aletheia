@@ -312,6 +312,10 @@ int main(int argc, char* argv[])
     auto* save = window.findChild<QPushButton*>("saveButton");
     auto* copy = window.findChild<QPushButton*>("copyButton");
     CHECK(input && output, "campos do lote existem");
+    std::printf("lote: pasta de saida = '%s' (guardado: '%s')\n",
+                output ? qPrintable(output->text()) : "<sem campo>",
+                qPrintable(QSettings("aletheia", "aletheia")
+                               .value("batch/outputDir").toString()));
     CHECK(output && output->text().contains("_rembg"),
           "pasta de saida padrao do lote e _rembg");
     CHECK(save && copy, "botoes Salvar e Copiar existem");
