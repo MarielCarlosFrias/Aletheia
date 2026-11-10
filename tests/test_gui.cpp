@@ -273,17 +273,33 @@ int main(int argc, char* argv[])
     if (modelPath && log) {
         modelPath->setText(tmp.filePath("modelo_inexistente.onnx"));
         spin();
+
+        bool failed = false;
+        QEventLoop failLoop;
+        QObject::connect(&window, &MainWindow::jobFinished, &failLoop,
+                         [&failed, &failLoop]() {
+            failed = true;
+            failLoop.quit();
+        });
         QTimer missingModelGuard;
         QObject::connect(&missingModelGuard, &QTimer::timeout, []() {
             if (QWidget* modal = QApplication::activeModalWidget())
                 modal->close();
         });
         missingModelGuard.start(50);
+
         window.removeBackground();
-        spin();
+        if (!failed) {
+            QTimer::singleShot(60000, &failLoop, &QEventLoop::quit);
+            failLoop.exec();
+        }
         missingModelGuard.stop();
-        CHECK(log->toPlainText().contains("[ERROR]"),
-              "modelo inexistente: o erro fica registado no log");
+        spin();
+
+        const QString expected = english ? "model unavailable"
+                                         : "modelo indisponível";
+        CHECK(log->toPlainText().contains(expected),
+              "modelo inexistente: o erro diz que o modelo esta indisponivel");
         CHECK(open && open->isEnabled(),
               "modelo inexistente: a janela continua utilizavel");
         if (hasModel) modelPath->setText(modelArg);

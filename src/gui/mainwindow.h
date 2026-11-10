@@ -225,7 +225,6 @@ private:
     // inferencias antigas sao descartados em onRemoveFinished().
     quint64 imageGeneration_ = 0;
     std::shared_ptr<ModelCache> modelCache_;
-    std::shared_ptr<BackgroundRemover> currentRemover_;
     QNetworkAccessManager* updateNam_ = nullptr;
     QString latestRemoteVersion_;
     QFutureWatcher<SingleResult> removeWatcher_;

@@ -3,11 +3,13 @@
 
 #include <QImage>
 #include <QString>
+#include <QDateTime>
 #include <onnxruntime_cxx_api.h>
 #include <string>
 #include <vector>
 #include <cstdint>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 
@@ -41,7 +43,9 @@ private:
 
     static QString computeSha256(const QString& path);
     static void saveModelMetadata(const QString& path, const QString& sha);
-    static QString loadModelMetadataSha(const QString& path);
+    // Deteta alteracoes ao ficheiro do modelo sem o re-hashear:
+    // compara tamanho e data de modificacao com os do carregamento.
+    bool modelFileUnchanged() const;
 
     Ort::Env env_;
     Ort::Session session_;
@@ -53,9 +57,19 @@ private:
     // shape do modelo (com fallback pelo nome quando e dinamico).
     int input_size_ = kDefaultInputSize;
 
+    // Metadados do ficheiro carregado.
+    QString modelPath_;
+    QString modelSha_;
+    qint64 modelSize_ = 0;
+    QDateTime modelModified_;
+
     mutable std::atomic<bool> cancelRequested_{false};
     mutable std::mutex runMutex_;
-    mutable Ort::RunOptions* activeRunOptions_ = nullptr;
+    // Partilhado de proposito: requestCancel() pode estar a usar o
+    // RunOptions no instante em que a inferencia termina. Com um
+    // ponteiro cru isso era um use-after-free (o objeto vive na pilha
+    // de removeBackground).
+    mutable std::shared_ptr<Ort::RunOptions> activeRunOptions_;
 
 private:
     static std::mutex cacheMutex_;

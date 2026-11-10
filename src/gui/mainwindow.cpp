@@ -1173,13 +1173,15 @@ void MainWindow::modelIndexChanged(int index) {
     // Pré-carregar modelo em background para evitar bloqueio na primeira inferência
     if (!path.isEmpty() && QFile::exists(path)) {
         logEdit_->appendPlainText("[INFO] " + TR("Pré-carregando modelo...", "Preloading model..."));
-        (void)QtConcurrent::run([path, cache = modelCache_](){
+        (void)QtConcurrent::run([cache = modelCache_, path]() {
             try {
-                auto remover = BackgroundRemover::get(path);
-                Q_UNUSED(remover);
-                // Opcional: notificar UI
-            } catch (const std::exception& e) {
-                // Log silencioso; o erro será mostrado na inferência
+                // Aquece a MESMA cache usada pela inferencia. Antes o
+                // pré-carregamento usava outra cache (a estatica de
+                // BackgroundRemover::get) e destruia a sessao no fim,
+                // obrigando a ler o modelo outra vez na inferencia.
+                (void)obtainRemover(cache, path);
+            } catch (const std::exception&) {
+                // Log silencioso; o erro sera mostrado na inferencia.
             }
         });
     }
@@ -1228,9 +1230,20 @@ void MainWindow::removeBackground() {
         return;
     }
     if (removeWatcher_.isRunning()) {
-        if (currentRemover_) {
-            currentRemover_->requestCancel();
+        // O modelo e carregado na thread de trabalho: enquanto nao
+        // houver sessao na cache nao ha o que cancelar.
+        std::shared_ptr<BackgroundRemover> remover;
+        {
+            QMutexLocker lock(&modelCache_->mutex);
+            if (modelCache_->remover
+                && modelCache_->loadedPath == modelPathEdit_->text())
+                remover = modelCache_->remover;
+        }
+        if (remover) {
+            remover->requestCancel();
             logEdit_->appendPlainText("[INFO] " + TR("Cancelamento solicitado.", "Cancellation requested."));
+        } else {
+            logEdit_->appendPlainText("[INFO] " + TR("A carregar o modelo...", "Loading the model..."));
         }
         return;
     }
@@ -1263,42 +1276,25 @@ void MainWindow::removeBackground() {
     // muda e o resultado antigo e descartado ao chegar.
     const quint64 generation = imageGeneration_;
 
-    // Obtem remover antes de iniciar a thread para poder cancelar.
-    // Se o modelo nao existir ou for invalido, obtainRemover devolve
-    // nullptr com o motivo: mostra-se o erro e a janela fica utilizavel
-    // (antes a excecao do ONNX abortava a aplicacao).
-    QString modelError;
-    const auto remover =
-        obtainRemover(modelCache_, options.modelPath, &modelError);
-    if (!remover) {
-        setUiBusy(false);
-        progressBar_->setVisible(false);
-        progressBar_->setRange(0, 100);
-        const QString detail = modelError.isEmpty()
-            ? errModel
-            : errModel + QStringLiteral(": ") + modelError;
-        logEdit_->appendPlainText("[ERROR] " + detail);
-        // Sinal antes do dialogo: consumidores automaticos (ex.: a
-        // ferramenta de screenshots em modo offscreen) nao ficam
-        // bloqueados por uma caixa modal.
-        emit jobFinished();
-        if (!closeRequested_) {
-            QMessageBox::critical(this, TR("Erro", "Error"),
-                TR("Falha ao carregar o modelo:\n",
-                   "Failed to load the model:\n") + detail);
-        }
-        maybeCloseAfterJobs();
-        return;
-    }
-    currentRemover_ = remover;
-
+    // O modelo e carregado DENTRO da thread de trabalho: a janela nao
+    // congela enquanto o ONNX le o ficheiro (176 MB no U2-Net). Se o
+    // modelo nao existir ou for invalido, obtainRemover devolve nullptr
+    // com o motivo e o erro volta pelo caminho normal (log + dialogo).
     removeWatcher_.setFuture(QtConcurrent::run(
-        [remover, img = originalImage_, options,
+        [cache = modelCache_, img = originalImage_, options,
          generation, errModel, errOnnx, errGeneric, errUnknown]()
             -> SingleResult {
             try {
-                if (!remover)
-                    return { QImage(), errModel, generation };
+                QString modelError;
+                const std::shared_ptr<BackgroundRemover> remover =
+                    obtainRemover(cache, options.modelPath, &modelError);
+                if (!remover) {
+                    return { QImage(),
+                             modelError.isEmpty()
+                                 ? errModel
+                                 : errModel + QStringLiteral(": ") + modelError,
+                             generation };
+                }
                 return { ImagePostProcessor::apply(
                              remover->removeBackground(img), options),
                          QString(), generation };
@@ -1320,11 +1316,6 @@ void MainWindow::removeBackground() {
                 return { QImage(), errUnknown, generation };
             }
         }));
-
-    // Limpar referencia ao terminar
-    QObject::connect(&removeWatcher_, &QFutureWatcher<SingleResult>::finished, this, [this](){
-        currentRemover_.reset();
-    });
 }
 
 void MainWindow::onRemoveFinished()

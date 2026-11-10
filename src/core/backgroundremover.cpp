@@ -52,18 +52,10 @@ void BackgroundRemover::saveModelMetadata(const QString& path, const QString& sh
     settings.endGroup();
 }
 
-QString BackgroundRemover::loadModelMetadataSha(const QString& path) {
-    QSettings settings("bg-remover", "BackgroundRemover");
-    settings.beginGroup("Models");
-    QString key = getSettingsKey(path);
-    QString sha = settings.value(key + "/sha").toString();
-    settings.endGroup();
-    return sha;
-}
-
 BackgroundRemover::BackgroundRemover(const QString& modelPath)
     : env_(ORT_LOGGING_LEVEL_WARNING, "aletheia"),
-      session_(nullptr)
+      session_(nullptr),
+      modelPath_(modelPath)
 {
     Ort::SessionOptions sess_opts;
     // Usar todos os nucleos disponiveis: 2-4x mais rapido que o valor
@@ -99,11 +91,24 @@ BackgroundRemover::BackgroundRemover(const QString& modelPath)
              sizeStr,
              QString::fromStdString(output_name_));
 
-    // Persistir metadados para cache entre sessões
-    QString sha = BackgroundRemover::computeSha256(modelPath);
-    if (!sha.isEmpty()) {
-        BackgroundRemover::saveModelMetadata(modelPath, sha);
+    // Metadados do ficheiro: o SHA256 e calculado uma unica vez (por
+    // carregamento) e as alteracoes posteriores sao detetadas por
+    // tamanho/data, sem volver a ler os 176 MB do modelo.
+    const QFileInfo info(modelPath_);
+    modelSize_ = info.size();
+    modelModified_ = info.lastModified();
+    modelSha_ = BackgroundRemover::computeSha256(modelPath);
+    if (!modelSha_.isEmpty()) {
+        BackgroundRemover::saveModelMetadata(modelPath, modelSha_);
     }
+}
+
+bool BackgroundRemover::modelFileUnchanged() const
+{
+    const QFileInfo info(modelPath_);
+    if (!info.exists()) return false;
+    if (info.size() != modelSize_) return false;
+    return info.lastModified() == modelModified_;
 }
 
 std::shared_ptr<BackgroundRemover> BackgroundRemover::get(const QString& modelPath) {
@@ -111,16 +116,12 @@ std::shared_ptr<BackgroundRemover> BackgroundRemover::get(const QString& modelPa
     auto it = cache_.find(modelPath);
     if (it != cache_.end()) {
         if (auto sp = it->second.lock()) {
-            // Verificar se o ficheiro mudou desde a última validação
-            QString storedSha = loadModelMetadataSha(modelPath);
-            QString currentSha = computeSha256(modelPath);
-            if (!storedSha.isEmpty() && storedSha == currentSha) {
-                return sp; // sessão já validada, reutilizar
-            } else {
-                // modelo alterado ou metadados inválidos: invalidar cache
-                cache_.erase(it);
-                // opcional: limpar metadados antigos
-            }
+            // O ficheiro do modelo mudou? A comparacao usa tamanho e
+            // data (stat): nao volta a ler o modelo inteiro para
+            // re-hashear (176 MB por imagem no lote do CLI).
+            if (sp->modelFileUnchanged())
+                return sp;
+            cache_.erase(it);
         } else {
             cache_.erase(it);
         }
@@ -132,7 +133,9 @@ std::shared_ptr<BackgroundRemover> BackgroundRemover::get(const QString& modelPa
 
 void BackgroundRemover::requestCancel() {
     cancelRequested_.store(true);
-    Ort::RunOptions* opts = nullptr;
+    // Copia partilhada: o RunOptions continua vivo mesmo que a
+    // inferencia termine entre a leitura e a chamada a SetTerminate().
+    std::shared_ptr<Ort::RunOptions> opts;
     {
         std::lock_guard<std::mutex> lock(runMutex_);
         opts = activeRunOptions_;
@@ -203,16 +206,19 @@ QImage BackgroundRemover::removeBackground(const QImage& input) {
     const char* in_name  = input_name_.c_str();
     const char* out_name = output_name_.c_str();
 
-    Ort::RunOptions runOptions;
+    // O RunOptions vive num shared_ptr: requestCancel() pode estar a
+    // usa-lo quando a inferencia acaba (com um ponteiro para um objeto
+    // da pilha isso era um use-after-free).
+    auto runOptions = std::make_shared<Ort::RunOptions>();
     {
         std::lock_guard<std::mutex> lock(runMutex_);
-        activeRunOptions_ = &runOptions;
+        activeRunOptions_ = runOptions;
     }
 
     std::vector<Ort::Value> outputs;
     try {
         outputs = session_.Run(
-            runOptions,
+            *runOptions,
             &in_name, &input_tensor, 1,
             &out_name, 1);
     } catch (...) {

@@ -134,12 +134,6 @@ add_executable(aletheia
     src/gui/main.cpp
     src/gui/mainwindow.cpp
     src/gui/mainwindow.h
-    src/gui/batchtabcontroller.cpp
-    src/gui/batchtabcontroller.h
-    src/gui/inferenceworker.cpp
-    src/gui/inferenceworker.h
-    src/gui/previewinspector.cpp
-    src/gui/previewinspector.h
     src/gui/maskeditcanvas.cpp
     src/gui/maskeditcanvas.h
     src/gui/helpwidget.cpp
