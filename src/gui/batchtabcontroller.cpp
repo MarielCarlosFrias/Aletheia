@@ -76,8 +76,11 @@ QWidget* BatchTabController::createTab()
     foldersLayout->addRow(TR("Pasta de origem:", "Source folder:"), inRow);
 
     auto* outRow = new QHBoxLayout;
-    outputDirEdit_ = new QLineEdit;
+    outputDirEdit_ = new QLineEdit("./_rembg");
     outputDirEdit_->setObjectName("batchOutput");
+    // A pasta de destino escolhe-se com o botao (e um caminho escrito
+    // a mao seria invalido no lote).
+    outputDirEdit_->setReadOnly(true);
     outRow->addWidget(outputDirEdit_, 1);
     btnSelectOutput_ = new QPushButton(TR("Salvar em...", "Save to..."));
     btnSelectOutput_->setObjectName("batchSelectOutput");
@@ -192,7 +195,11 @@ void BatchTabController::processBatch()
         return;
     }
     batchFolder_ = folderEdit_->text();
-    batchOutputDir_ = outputDirEdit_->text();
+    // Uma pasta de destino vazia faria o lote gravar no diretorio
+    // atual: usa-se a pasta por omissao.
+    batchOutputDir_ = outputDirEdit_->text().trimmed();
+    if (batchOutputDir_.isEmpty())
+        batchOutputDir_ = QStringLiteral("./_rembg");
 
     // O formato escolhido no painel tambem vale para o lote. Se o
     // plugin nao existir (ex.: WebP no Linux), avisar antes de

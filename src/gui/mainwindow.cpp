@@ -1570,8 +1570,14 @@ void MainWindow::restoreSettings()
     if (!geometry.isEmpty()) restoreGeometry(geometry);
 
     batch_->folderEdit()->setText(settings.value("batch/inputDir").toString());
-    batch_->outputDirEdit()->setText(
-        settings.value("batch/outputDir", "./_rembg").toString());
+    {
+        // Um valor guardado vazio nao pode apagar a pasta por omissao.
+        const QString savedOutput =
+            settings.value("batch/outputDir").toString();
+        batch_->outputDirEdit()->setText(
+            savedOutput.isEmpty() ? QStringLiteral("./_rembg")
+                                   : savedOutput);
+    }
     brushRadiusSpin_->setValue(
         settings.value("brush/radius", 10).toInt());
     refineCheckBox_->setChecked(
