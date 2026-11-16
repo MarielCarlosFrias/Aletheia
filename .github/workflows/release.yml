@@ -54,7 +54,7 @@ jobs:
             exit "$status"
           fi
       - run: cpack --config build/CPackConfig.cmake -G DEB -B dist
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-deb
           path: dist/*.deb
@@ -145,7 +145,7 @@ jobs:
             --plugin qt --output appimage
           mv *.AppImage "aletheia_${VERSION}_amd64.AppImage"
           ls -la aletheia_*.AppImage
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-appimage
           path: aletheia_*_amd64.AppImage
@@ -190,7 +190,7 @@ jobs:
             exit $status
           }
       - run: cpack --config build/CPackConfig.cmake -C Release -G ZIP -B dist
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-zip
           path: dist/*.zip
@@ -277,7 +277,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           ditto -c -k --keepParent "$APP" "aletheia_${VERSION}_macos_universal2.zip"
           ls -lh aletheia_*_macos_universal2.zip
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-zip
           path: aletheia_*_macos_universal2.zip
