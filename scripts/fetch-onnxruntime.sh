@@ -95,27 +95,48 @@ case "$NPM_OS" in
         # traz (os providers CPU/DML vao dentro do proprio onnxruntime.dll).
         cp "$NAPI_DIR/onnxruntime_providers_shared.dll" "$VENDOR/lib/" 2>/dev/null || true
         # O CMake procura onnxruntime.lib (import library) no Windows; o npm
-        # so traz a DLL. Gera a import lib com lib.exe (disponivel no runner
-        # Windows com Visual Studio) a partir dos exports da DLL.
-        if command -v lib.exe > /dev/null 2>&1; then
-            # Extrai os simbolos exportados e gera o .def
-            if command -v dumpbin.exe > /dev/null 2>&1; then
-                dumpbin.exe /exports "$VENDOR/lib/onnxruntime.dll" \
-                    | awk '/ordinal hint .* \[.*\]/{print "    "$NF" = "$NF}' \
-                    > "$TMP/onnxruntime.def" 2>/dev/null || true
-                if [ -s "$TMP/onnxruntime.def" ]; then
-                    { echo "LIBRARY onnxruntime.dll"; cat "$TMP/onnxruntime.def"; } \
-                        > "$TMP/onnxruntime_full.def"
-                    lib.exe /def:"$TMP/onnxruntime_full.def" \
-                        /out:"$VENDOR/lib/onnxruntime.lib" /machine:x64 2>/dev/null || true
-                fi
+        # so traz a DLL. Gera a import lib com lib.exe a partir dos exports
+        # da DLL. As ferramentas MSVC nao estao no PATH da shell bash do CI:
+        # localizam-se nos caminhos padrao do Visual Studio (runners GitHub
+        # windows-2022 included).
+        for d in \
+            "/c/Program Files/Microsoft Visual Studio"/2022/*/VC/Tools/MSVC/*/bin/Hostx64/x64 \
+            "/c/Program Files (x86)/Microsoft Visual Studio"/2022/*/VC/Tools/MSVC/*/bin/Hostx64/x64 \
+            "/c/Program Files/Microsoft Visual Studio"/2019/*/VC/Tools/MSVC/*/bin/Hostx64/x64 \
+            "/c/Program Files (x86)/Microsoft Visual Studio"/2019/*/VC/Tools/MSVC/*/bin/Hostx64/x64
+        do
+            if [ -x "$d/lib.exe" ] && [ -x "$d/dumpbin.exe" ]; then
+                export PATH="$d:$PATH"
+                break
             fi
+        done
+        rm -f "$VENDOR/lib/onnxruntime.lib"
+        if command -v dumpbin.exe >/dev/null 2>&1 && command -v lib.exe >/dev/null 2>&1; then
+            # dumpbin /exports (VS 2019/2022) imprime linhas como
+            #     1    0 00001234 OrtGetApiBase
+            # O nome exportado e a ultima coluna; so nomes C validos entram
+            # no .def (forwarders "DLL.Func" sao excluidos pela regex).
+            dumpbin.exe /exports "$VENDOR/lib/onnxruntime.dll" \
+                | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $NF ~ /^[A-Za-z_][A-Za-z0-9_]*$/ { print "    " $NF }' \
+                > "$TMP/onnxruntime.def"
+            if [ -s "$TMP/onnxruntime.def" ]; then
+                { echo "LIBRARY onnxruntime.dll"; cat "$TMP/onnxruntime.def"; } \
+                    > "$TMP/onnxruntime_full.def"
+                if lib.exe /def:"$TMP/onnxruntime_full.def" \
+                        /out:"$VENDOR/lib/onnxruntime.lib" /machine:x64; then
+                    echo "Import lib gerada com lib.exe: $VENDOR/lib/onnxruntime.lib"
+                else
+                    echo "AVISO: lib.exe falhou; sem import lib o CMake liga direto contra a DLL" >&2
+                    rm -f "$VENDOR/lib/onnxruntime.lib"
+                fi
+            else
+                echo "AVISO: dumpbin nao devolveu exports; o CMake liga direto contra a DLL" >&2
+            fi
+        else
+            echo "AVISO: dumpbin.exe/lib.exe nao encontrados; o CMake liga direto contra onnxruntime.dll" >&2
         fi
-        # Se a import lib nao foi gerada, cria um stub .lib copiando a DLL
-        # (o CMake usa IMPORTED_IMPLIB; sem ele, apontamos para a propria DLL).
-        if [ ! -f "$VENDOR/lib/onnxruntime.lib" ]; then
-            cp "$VENDOR/lib/onnxruntime.dll" "$VENDOR/lib/onnxruntime.lib" 2>/dev/null || true
-        fi
+        # NUNCA copiar a DLL como .lib: o link.exe trata um PE como archive
+        # COFF e falha com LNK1107 "invalid or corrupt file".
         ;;
 esac
 

@@ -28,6 +28,10 @@ onnxruntime-osx-*/
 !/vendor/onnxruntime/
 !/vendor/onnxruntime/**
 !vendor/onnxruntime/lib/*.so*
+# Binarios Windows gerados por scripts/fetch-onnxruntime.sh no CI/dev local
+# (DLL de ~15 MB e import lib sintetizada): nunca commitar.
+vendor/onnxruntime/lib/*.dll
+vendor/onnxruntime/lib/*.lib
 
 # macOS: Qt instalado por aqtinstall, venv e ZIP de release
 /Qt/
