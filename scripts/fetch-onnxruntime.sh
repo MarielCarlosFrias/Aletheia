@@ -116,9 +116,13 @@ case "$NPM_OS" in
             #     1    0 00001234 OrtGetApiBase
             # O nome exportado e a ultima coluna; so nomes C validos entram
             # no .def (forwarders "DLL.Func" sao excluidos pela regex).
+            # O "|| true" e essencial: com "set -o pipefail", um dumpbin.exe
+            # que falhe abortaria o script (set -e) e o passo inteiro do CI.
+            # A import lib e OPCIONAL — sem ela o CMake liga direto contra
+            # a DLL (IMPORTED_LOCATION), por isso aqui nunca se pode falhar.
             dumpbin.exe /exports "$VENDOR/lib/onnxruntime.dll" \
                 | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $NF ~ /^[A-Za-z_][A-Za-z0-9_]*$/ { print "    " $NF }' \
-                > "$TMP/onnxruntime.def"
+                > "$TMP/onnxruntime.def" || true
             if [ -s "$TMP/onnxruntime.def" ]; then
                 { echo "LIBRARY onnxruntime.dll"; cat "$TMP/onnxruntime.def"; } \
                     > "$TMP/onnxruntime_full.def"
