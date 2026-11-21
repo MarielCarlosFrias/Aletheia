@@ -139,8 +139,12 @@ if(NOT EXISTS "${ONNX_RUNTIME_LIBRARY}")
         "Biblioteca ONNX Runtime nao encontrada: ${ONNX_RUNTIME_LIBRARY}")
 endif()
 if(WIN32 AND NOT EXISTS "${ONNX_RUNTIME_PROVIDER_LIBRARY}")
-    message(FATAL_ERROR
-        "Biblioteca auxiliar ONNX Runtime nao encontrada: "
+    # Opcional: o pacote npm onnxruntime-node nao traz esta DLL. A API C++
+    # acede aos execution providers por ponteiros da struct OrtApi (definidos
+    # na DLL principal), pelo que nao e necessaria para compilar; em CPU/DML
+    # o proprio onnxruntime.dll chega.
+    message(STATUS
+        "onnxruntime_providers_shared.dll ausente (opcional, ignorada): "
         "${ONNX_RUNTIME_PROVIDER_LIBRARY}")
 endif()
 
@@ -264,17 +268,19 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ONNX_DIR}/lib/onnxruntime.dll"
             $<TARGET_FILE_DIR:aletheia>)
-    add_custom_command(TARGET aletheia POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${ONNX_RUNTIME_PROVIDER_LIBRARY}"
-            $<TARGET_FILE_DIR:aletheia>)
+    if(EXISTS "${ONNX_RUNTIME_PROVIDER_LIBRARY}")
+        add_custom_command(TARGET aletheia POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNX_RUNTIME_PROVIDER_LIBRARY}"
+                $<TARGET_FILE_DIR:aletheia>)
+        add_custom_command(TARGET aletheia_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNX_RUNTIME_PROVIDER_LIBRARY}"
+                $<TARGET_FILE_DIR:aletheia_cli>)
+    endif()
     add_custom_command(TARGET aletheia_cli POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ONNX_DIR}/lib/onnxruntime.dll"
-            $<TARGET_FILE_DIR:aletheia_cli>)
-    add_custom_command(TARGET aletheia_cli POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${ONNX_RUNTIME_PROVIDER_LIBRARY}"
             $<TARGET_FILE_DIR:aletheia_cli>)
 endif()
 
@@ -382,7 +388,7 @@ if(WIN32)
     install(FILES "${ONNX_DIR}/LICENSE"
         DESTINATION . RENAME LICENSE.onnxruntime OPTIONAL)
     install(FILES "${ONNX_DIR}/lib/onnxruntime.dll" DESTINATION .)
-    install(FILES "${ONNX_RUNTIME_PROVIDER_LIBRARY}" DESTINATION .)
+    install(FILES "${ONNX_RUNTIME_PROVIDER_LIBRARY}" DESTINATION . OPTIONAL)
     get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
     set(WINDEPLOYQT_EXECUTABLE "${QT_BIN_DIR}/windeployqt.exe")
@@ -534,11 +540,15 @@ endif()
 if(CMAKE_CXX_FLAGS MATCHES "sanitize=address" AND EXISTS "${CMAKE_SOURCE_DIR}/asan.supp")
     set(ALETHEIA_ASAN_ENV
         "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/asan.supp:exitcode=0")
-    set_tests_properties(postprocessing_test batchplan_test modelpath_test
+    # APPEND e essencial: set_tests_properties(... PROPERTIES ENVIRONMENT ...)
+    # substituiria a lista toda e deixava os testes GUI sem
+    # QT_QPA_PLATFORM=offscreen, que e obrigatorio em CI sem display
+    # (senao o plugin xcb aborta com "could not connect to display").
+    set_property(TEST postprocessing_test batchplan_test modelpath_test
         modelvalidator_test savepath_test imageformats_test
         gui_test_pt gui_test_en batchprocessor_test inference_test
         visual_regression_test
-        PROPERTIES ENVIRONMENT "${ALETHEIA_ASAN_ENV}")
+        APPEND PROPERTY ENVIRONMENT "${ALETHEIA_ASAN_ENV}")
 endif()
 
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY

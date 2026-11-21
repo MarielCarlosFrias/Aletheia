@@ -93,6 +93,12 @@ jobs:
           echo "CMAKE_PREFIX_PATH=$QT_DIR" >> "$GITHUB_ENV"
           echo "$QT_DIR/bin" >> "$GITHUB_PATH"
 
+      - name: Prepare ONNX Runtime (npm)
+        # Headers de vendor/; dylib universal2 (x86_64+arm64 via lipo) vem
+        # do pacote npm onnxruntime-node. Sem este passo o configure falha:
+        # libonnxruntime.dylib nao existe no checkout.
+        run: bash scripts/fetch-onnxruntime.sh
+
       - name: Fetch model for tests (best effort)
         run: |
           curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
@@ -179,6 +185,13 @@ jobs:
           Add-Content $env:GITHUB_PATH "$qtDir\bin"
           "CMAKE_PREFIX_PATH=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      - name: Prepare ONNX Runtime (npm)
+        # Headers de vendor/; DLL do Windows vem do pacote npm
+        # onnxruntime-node. Sem este passo o configure falha:
+        # onnxruntime.dll nao existe no checkout.
+        shell: bash
+        run: bash scripts/fetch-onnxruntime.sh
+
       - name: Fetch model for the inference test (best effort)
         shell: pwsh
         run: |
@@ -232,7 +245,10 @@ jobs:
           Expand-Archive $zip.FullName package
           # Diagnostico: lista tudo o que ficou no ZIP.
           Get-ChildItem -Recurse package | Select-Object -ExpandProperty FullName
-          $need = @('platforms\qwindows.dll','onnxruntime.dll','onnxruntime_providers_shared.dll')
+          # onnxruntime_providers_shared.dll nao e obrigatoria: o pacote npm
+          # onnxruntime-node nao a traz e os providers CPU/DML vao dentro do
+          # proprio onnxruntime.dll.
+          $need = @('platforms\qwindows.dll','onnxruntime.dll')
           foreach ($f in $need) {
             if (-not (Test-Path (Join-Path 'package' $f))) {
               Write-Host "FALTA: $f"

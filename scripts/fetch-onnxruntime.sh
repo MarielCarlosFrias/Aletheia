@@ -69,7 +69,21 @@ case "$NPM_OS" in
         cp "$NAPI_DIR"/libonnxruntime.so* "$VENDOR/lib/"
         ;;
     darwin)
-        cp "$NAPI_DIR"/libonnxruntime.*.dylib "$VENDOR/lib/"
+        # O CI compila universal2 (x86_64;arm64): o pacote npm traz as
+        # duas fatias em separado (darwin/x64 e darwin/arm64); unem-se
+        # com lipo num dylib universal. Copiar so a fatia do runner faz o
+        # linker falhar com "found architecture 'arm64', required
+        # architecture 'x86_64'" e simbolos indefinidos (_OrtGetApiBase).
+        X64_DYLIB="$TMP/package/bin/napi-v3/darwin/x64/libonnxruntime.$VERSION.dylib"
+        ARM_DYLIB="$TMP/package/bin/napi-v3/darwin/arm64/libonnxruntime.$VERSION.dylib"
+        if [ -f "$X64_DYLIB" ] && [ -f "$ARM_DYLIB" ]; then
+            rm -f "$VENDOR/lib/libonnxruntime.$VERSION.dylib"
+            lipo -create "$X64_DYLIB" "$ARM_DYLIB" \
+                -output "$VENDOR/lib/libonnxruntime.$VERSION.dylib"
+        else
+            # Fallback: copia a fatia da arquitetura do runner.
+            cp "$NAPI_DIR"/libonnxruntime.*.dylib "$VENDOR/lib/"
+        fi
         # Cria o symlink canonico
         cd "$VENDOR/lib"
         ln -sf "libonnxruntime.$VERSION.dylib" libonnxruntime.dylib 2>/dev/null || true
@@ -77,6 +91,9 @@ case "$NPM_OS" in
     win32)
         cp "$NAPI_DIR/onnxruntime.dll" "$VENDOR/lib/"
         cp "$NAPI_DIR/DirectML.dll" "$VENDOR/lib/" 2>/dev/null || true
+        # Opcional: so existe nos releases oficiais; o pacote npm nao a
+        # traz (os providers CPU/DML vao dentro do proprio onnxruntime.dll).
+        cp "$NAPI_DIR/onnxruntime_providers_shared.dll" "$VENDOR/lib/" 2>/dev/null || true
         # O CMake procura onnxruntime.lib (import library) no Windows; o npm
         # so traz a DLL. Gera a import lib com lib.exe (disponivel no runner
         # Windows com Visual Studio) a partir dos exports da DLL.
