@@ -4,6 +4,8 @@
 #include <QCryptographicHash>
 #include <QFile>
 #include <QDateTime>
+#include <QProcessEnvironment>
+#include <QStringList>
 #include <cmath>
 #include <algorithm>
 #include <array>
@@ -13,6 +15,68 @@
 // Constantes ImageNet
 static constexpr float MEAN[3] = {0.485f, 0.456f, 0.406f};
 static constexpr float STD[3]  = {0.229f, 0.224f, 0.225f};
+
+// Seleciona o execution provider (GPU se disponivel, senao CPU).
+// A variavel de ambiente ALETHEIA_PROVIDER controla a escolha:
+//   auto (padrao) | cpu | cuda | dml | coreml
+// No modo auto tenta CUDA -> DirectML -> CoreML -> CPU, conforme os
+// providers disponiveis no build do ONNX Runtime. Devolve o nome do
+// provider efetivamente usado (para o log).
+static QString selectProvider(Ort::SessionOptions& opts)
+{
+    QString requested = QProcessEnvironment::systemEnvironment()
+        .value(QStringLiteral("ALETHEIA_PROVIDER"))
+        .toLower().trimmed();
+    if (requested.isEmpty()) requested = QStringLiteral("auto");
+
+    // Lista de providers disponiveis neste build do ONNX Runtime.
+    QStringList available;
+    for (const auto& p : Ort::GetAvailableProviders())
+        available << QString::fromStdString(p);
+
+    const int cpuThreads = std::max(
+        1, static_cast<int>(std::thread::hardware_concurrency()));
+
+    auto tryAppend = [&](const QString& name) -> bool {
+        if (!available.contains(name, Qt::CaseInsensitive)) return false;
+        try {
+            if (name.compare(QStringLiteral("CUDA"), Qt::CaseInsensitive) == 0) {
+                OrtCUDAProviderOptions cudaOpts{};
+                cudaOpts.device_id = 0;
+                opts.AppendExecutionProvider_CUDA(cudaOpts);
+            } else {
+                // DML, CoreML e outros usam o metodo generico por nome.
+                opts.AppendExecutionProvider(name.toStdString());
+            }
+            return true;
+        } catch (const Ort::Exception& e) {
+            qWarning() << "[BackgroundRemover] Falha ao ativar provider"
+                       << name << ":" << e.what();
+            return false;
+        } catch (...) {
+            return false;
+        }
+    };
+
+    if (requested == QLatin1String("cuda")) {
+        if (tryAppend(QStringLiteral("CUDA"))) return QStringLiteral("CUDA");
+    } else if (requested == QLatin1String("dml")) {
+        if (tryAppend(QStringLiteral("DML"))) return QStringLiteral("DML");
+    } else if (requested == QLatin1String("coreml")) {
+        if (tryAppend(QStringLiteral("CoreML"))) return QStringLiteral("CoreML");
+    } else if (requested == QLatin1String("cpu")) {
+        // CPU apenas: e o provider padrao, basta configurar as threads.
+    } else { // auto
+        if (tryAppend(QStringLiteral("CUDA"))) return QStringLiteral("CUDA");
+        if (tryAppend(QStringLiteral("DML")))  return QStringLiteral("DML");
+        if (tryAppend(QStringLiteral("CoreML"))) return QStringLiteral("CoreML");
+    }
+
+    // CPU e sempre o ultimo recurso (e o unico garantido): e o
+    // provider padrao do ONNX Runtime, nao precisa de Append explicito.
+    opts.SetIntraOpNumThreads(cpuThreads);
+    return QStringLiteral("CPU");
+}
 
 std::mutex BackgroundRemover::cacheMutex_;
 std::unordered_map<QString, std::weak_ptr<BackgroundRemover>> BackgroundRemover::cache_;
@@ -40,21 +104,53 @@ BackgroundRemover::BackgroundRemover(const QString& modelPath)
       session_(nullptr),
       modelPath_(modelPath)
 {
-    Ort::SessionOptions sess_opts;
-    // Usar todos os nucleos disponiveis: 2-4x mais rapido que o valor
-    // fixo de 1 thread em CPU multi-core.
-    sess_opts.SetIntraOpNumThreads(
-        std::max(1u, std::thread::hardware_concurrency()));
-    sess_opts.SetGraphOptimizationLevel(
+    const int cpuThreads = std::max(
+        1, static_cast<int>(std::thread::hardware_concurrency()));
+
+    // Primeira tentativa: provider escolhido (GPU se disponivel).
+    Ort::SessionOptions gpu_opts;
+    gpu_opts.SetIntraOpNumThreads(cpuThreads);
+    gpu_opts.SetGraphOptimizationLevel(
         GraphOptimizationLevel::ORT_ENABLE_ALL);
+    const QString provider = selectProvider(gpu_opts);
 
 #ifdef _WIN32
     const std::wstring wpath = modelPath.toStdWString();
-    session_ = Ort::Session(env_, wpath.c_str(), sess_opts);
+    const wchar_t* wpathPtr = wpath.c_str();
 #else
     const QByteArray utf8Path = modelPath.toUtf8();
-    session_ = Ort::Session(env_, utf8Path.constData(), sess_opts);
+    const char* utf8Ptr = utf8Path.constData();
 #endif
+
+    try {
+#ifdef _WIN32
+        session_ = Ort::Session(env_, wpathPtr, gpu_opts);
+#else
+        session_ = Ort::Session(env_, utf8Ptr, gpu_opts);
+#endif
+        provider_ = provider;
+    } catch (const Ort::Exception& e) {
+        // Se o provider GPU falhou (ex.: driver ausente), faz fallback
+        // para CPU puro e recria a sessao.
+        if (provider != QLatin1String("CPU")) {
+            qWarning() << "[BackgroundRemover] Sessao com provider"
+                       << provider << "falhou (" << e.what()
+                       << "); a usar CPU.";
+            Ort::SessionOptions cpu_opts;
+            cpu_opts.SetIntraOpNumThreads(cpuThreads);
+            cpu_opts.SetGraphOptimizationLevel(
+                GraphOptimizationLevel::ORT_ENABLE_ALL);
+            // CPU e o provider padrao; nao precisa de Append explicito.
+#ifdef _WIN32
+            session_ = Ort::Session(env_, wpathPtr, cpu_opts);
+#else
+            session_ = Ort::Session(env_, utf8Ptr, cpu_opts);
+#endif
+            provider_ = QStringLiteral("CPU");
+        } else {
+            throw;
+        }
+    }
 
     Ort::AllocatorWithDefaultOptions allocator;
 
@@ -68,8 +164,9 @@ BackgroundRemover::BackgroundRemover(const QString& modelPath)
     const QString sizeStr = QString::number(input_size_)
         + QStringLiteral("x") + QString::number(input_size_);
     qInfo().noquote() << QStringLiteral(
-        "[BackgroundRemover] Modelo carregado: %1\n  Input: %2 (%3)\n  Output: %4")
+        "[BackgroundRemover] Modelo carregado: %1\n  Provider: %2\n  Input: %3 (%4)\n  Output: %5")
         .arg(modelPath,
+             provider_,
              QString::fromStdString(input_name_),
              sizeStr,
              QString::fromStdString(output_name_));
@@ -294,11 +391,14 @@ QImage BackgroundRemover::buildAlphaMask(
     int orig_w, int orig_h) const
 {
     // Detecção automática de logit vs probabilidade.
-    // Amostra rápida para evitar varrer toda a máscara duas vezes.
+    // Amostra espaçada (strided) por toda a máscara: amostrar so os
+    // primeiros N pixels podia nao ser representativo (ex.: canto
+    // uniforme numa imagem com objeto no centro).
     const int totalPixels = mask_w * mask_h;
     const int sample = std::min(totalPixels, 10000);
+    const int stride = std::max(1, totalPixels / sample);
     bool needsSigmoid = false;
-    for (int i = 0; i < sample; ++i) {
+    for (int i = 0; i < totalPixels; i += stride) {
         const float v = mask[i];
         if (v < -0.1f || v > 1.1f) {
             needsSigmoid = true;

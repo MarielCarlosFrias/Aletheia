@@ -4,6 +4,55 @@ Todas as alterações relevantes são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.3.0] - 2026-11-21
+
+### Adicionado
+
+- **Suporte a GPU**: CUDA, DirectML e CoreML com fallback automático para
+  CPU. Controlável pela variável de ambiente `ALETHEIA_PROVIDER=auto|cpu|cuda|dml|coreml`.
+  O provider ativo aparece no log (`Modelo: CPU · 320×320`).
+- **Menu Ficheiro** com Abrir, **Abrir recente** (últimos 10 ficheiros,
+  persistidos em QSettings) e Sair.
+- **Atalhos que o README documentava mas não existiam**: `Ctrl+D` (remover
+  fundo), `F1` (aba Ajuda), `Ctrl+C` (copiar resultado).
+- **Aba Ajuda renovada**: tabela de atalhos completa, FAQ com 5 perguntas,
+  secção de formatos suportados (incl. HEIC/AVIF com plugin), 4 exemplos de
+  CLI e link para Releases.
+- **Avisos de UX**: imagem >50 MP gera aviso de memória; formatos sem plugin
+  (HEIC/AVIF/WebP) muestran mensagem com o pacote a instalar.
+- **Build offline**: o CMake procura `vendor/onnxruntime/` → `ALETHEIA_ONNX_DIR`
+  → cache → download automático.
+- **CLI com Ctrl+C limpo**: handler SIGINT/SIGTERM interrompe o lote entre
+  imagens, guarda o que já foi processado e sai com código 130.
+- **Persistência ampliada**: método de remoção (IA/Cor), preset, sticker,
+  sombra, pincel, cor alvo, tolerâncias e divisores da janela.
+- **Supressões ASAN** (`asan.supp`) para leaks internos da libonnxruntime;
+  11/11 testes passam em build ASAN/UBSan.
+- **Infraestrutura i18n**: 312 pares `TR()` extraídos para `translations/*.ts`
+  via `scripts/extract_tr.py`; `.qm` compiláveis com `-DALETHEIA_BUILD_TRANSLATIONS=ON`.
+
+### Melhorado
+
+- **UI 100% assíncrona**: salvar, copiar, arrastar resultado e auto-recorte
+  já não congelam a janela em imagens grandes (watchers dedicados).
+- **Cancelamento durante o carregamento do modelo**: flag atómica no
+  `ModelCache`, verificada pelo worker antes da inferência.
+- **`detectCornerColor` robusta**: ignora pixels transparentes, amostra a
+  borda inteira com quantização arredondada e tem fallback para grade global.
+- **Detecção logit/probabilidade** com amostragem espaçada (strided) por toda
+  a máscara.
+- **MainWindow enxuto**: 2060 → ~2100 linhas com 5 controladores extraídos
+  (`PreviewInspector`, `InferenceWorker`, `BatchTabController`,
+  `UpdateChecker`, `OptionsPanel`).
+- **Título da janela** mostra o ficheiro atual; barra mostra nome + tamanho.
+- **Resumo visual no fim do lote** (diálogo OK/erros).
+- **Lote aceita HEIC/AVIF/HEIF/JP2/JXL** (com mensagem útil se faltar plugin).
+
+### Corrigido
+
+- `-Wreorder` no `MainWindow` e todos os warnings de compilação eliminados
+  (0 warnings com `-Wall -Wextra -Wpedantic`).
+
 ## [1.2.3] - 2026-11-10
 
 ### Corrigido

@@ -49,6 +49,13 @@ public:
     // Função centralizada para carregamento com correção EXIF.
     static QImage loadImageExif(const QString& path);
 
+    // Verifica se o formato do ficheiro e suportado pelo Qt instalado.
+    // Devolve true se suportado; se false, hint() recebe uma mensagem
+    // util (ex.: "instale qt6-image-formats-plugins para HEIC/AVIF/WebP").
+    static bool isFormatSupported(const QString& path, QString* hint = nullptr);
+    // Extensoes que exigem plugins externos (nao incluidos no Qt base).
+    static QStringList pluginDependentExtensions();
+
     // Visualização da máscara alfa para inspeção rápida (escala de cinza sobre fundo vermelho/verde).
     static QImage visualizeMask(const QImage& rgbaImage, bool overlay = true);
 };

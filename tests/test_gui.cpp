@@ -12,6 +12,8 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
+#include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QPixmap>
 #include <QProgressBar>
@@ -128,6 +130,24 @@ int main(int argc, char* argv[])
     CHECK(dropZone != nullptr, "cartao de arrastar/soltar existe");
     CHECK(window.windowTitle().startsWith("Aletheia"),
           "titulo da janela contem Aletheia");
+    // Menu Ficheiro com Abrir recente existe.
+    {
+        auto* fileMenu = window.menuBar()->actions().isEmpty()
+            ? nullptr
+            : window.menuBar()->actions().first()->menu();
+        CHECK(fileMenu != nullptr, "menu Ficheiro existe");
+        bool hasRecent = false;
+        if (fileMenu) {
+            for (QAction* a : fileMenu->actions()) {
+                if (a->menu() && a->menu()->title().contains(
+                        english ? "recent" : "recente", Qt::CaseInsensitive)) {
+                    hasRecent = true;
+                    break;
+                }
+            }
+        }
+        CHECK(hasRecent, "menu Abrir recente existe");
+    }
 
     // ---- 2. Idioma e seletor ----
     auto* lang = window.findChild<QComboBox*>("langCombo");
@@ -159,9 +179,31 @@ int main(int argc, char* argv[])
           "preview original e canvas do resultado existem");
     window.openPath(firstPath);
     spin();
+    // O nome inclui o tamanho do ficheiro: "foto.png  (1.2 MB)".
     CHECK(imageName
-              && imageName->text() == QFileInfo(firstPath).fileName(),
+              && imageName->text().startsWith(QFileInfo(firstPath).fileName()),
           "nome da imagem aberta aparece na barra");
+    // O titulo da janela passa a incluir o nome do ficheiro.
+    CHECK(window.windowTitle().contains(QFileInfo(firstPath).fileName()),
+          "titulo da janela mostra o ficheiro aberto");
+    // O ficheiro aparece no menu de recentes.
+    {
+        bool inRecent = false;
+        for (QAction* ma : window.menuBar()->actions()) {
+            if (!ma->menu()) continue;
+            for (QAction* a : ma->menu()->actions()) {
+                if (a->menu()) {
+                    for (QAction* ra : a->menu()->actions()) {
+                        if (ra->data().toString() == firstPath) {
+                            inRecent = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        CHECK(inRecent, "ficheiro aberto aparece no menu Abrir recente");
+    }
     CHECK(stack && stack->currentIndex() == 1,
           "abrir imagem troca o estado vazio pela area de edicao");
     auto* status = window.findChild<QLabel*>("imageStatusLabel");
@@ -179,7 +221,7 @@ int main(int argc, char* argv[])
     window.openPath(secondPath);
     spin();
     CHECK(imageName
-              && imageName->text() == QFileInfo(secondPath).fileName(),
+              && imageName->text().startsWith(QFileInfo(secondPath).fileName()),
           "segunda imagem substitui a primeira");
     CHECK(canvas && canvas->getEditedImage().isNull(),
           "canvas continua vazio depois da troca");

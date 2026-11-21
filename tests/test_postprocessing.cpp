@@ -139,6 +139,40 @@ int main()
         return 1;
     }
 
+    // detectCornerColor com cantos transparentes (alpha=0): deve ignorar
+    // os pixels transparentes e detetar a cor opaca da borda interna.
+    QImage transpCorners(20, 20, QImage::Format_RGBA8888);
+    transpCorners.fill(Qt::transparent); // cantos transparentes (RGB=0)
+    for (int y = 3; y < 17; ++y)
+        for (int x = 3; x < 17; ++x)
+            transpCorners.setPixel(x, y, qRgb(255, 0, 255));
+    const QColor detTransp = ImagePostProcessor::detectCornerColor(transpCorners);
+    if (detTransp.name().toUpper() != "#FF00FF") {
+        std::cerr << "FAIL: detectCornerColor com cantos transparentes: "
+                  << detTransp.name().toUpper().toStdString() << std::endl;
+        return 1;
+    }
+
+    // detectCornerColor em imagem 100% transparente: fallback magenta.
+    QImage allTransp(10, 10, QImage::Format_RGBA8888);
+    allTransp.fill(Qt::transparent);
+    const QColor detFallback = ImagePostProcessor::detectCornerColor(allTransp);
+    if (detFallback.name().toUpper() != "#FF00FF") {
+        std::cerr << "FAIL: detectCornerColor fallback: "
+                  << detFallback.name().toUpper().toStdString() << std::endl;
+        return 1;
+    }
+
+    // detectCornerColor com fundo verde solido (chroma key classico).
+    QImage greenBg(30, 30, QImage::Format_RGB32);
+    greenBg.fill(qRgb(0, 255, 0));
+    const QColor detGreen = ImagePostProcessor::detectCornerColor(greenBg);
+    if (detGreen.name().toUpper() != "#00FF00") {
+        std::cerr << "FAIL: detectCornerColor verde: "
+                  << detGreen.name().toUpper().toStdString() << std::endl;
+        return 1;
+    }
+
     // Modo contíguo (deve manter o buraco interno isolado com alfa 255)
     const QImage contiguousResult = ImagePostProcessor::removeByColor(
         sprite, QColor(255, 0, 255), 0, true, true);

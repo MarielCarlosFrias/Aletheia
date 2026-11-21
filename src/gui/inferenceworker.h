@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QString>
 #include <QMutex>
+#include <atomic>
 #include <memory>
 
 class BackgroundRemover;
@@ -26,6 +27,10 @@ struct ModelCache {
     QMutex mutex;
     std::shared_ptr<BackgroundRemover> remover;
     QString loadedPath;
+    // Flag de cancelamento partilhada: permite cancelar durante o
+    // carregamento do modelo (antes de existir uma instancia do
+    // BackgroundRemover a que chamar requestCancel()).
+    std::atomic<bool> cancelRequested{false};
 };
 
 // Executa a inferencia numa thread de trabalho.

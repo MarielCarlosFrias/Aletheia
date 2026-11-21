@@ -4,8 +4,9 @@
 #include "previewinspector.h"
 #include "inferenceworker.h"
 #include "batchtabcontroller.h"
+#include "updatechecker.h"
+#include "optionspanel.h"
 #include "helpwidget.h"
-#include "collapsiblesection.h"
 #include "imagepostprocessor.h"
 #include "modelmanager.h"
 #include "modelpathresolver.h"
@@ -56,6 +57,8 @@
 #include <QSettings>
 #include <QShortcut>
 #include <QSignalBlocker>
+#include <QMenu>
+#include <QAction>
 #include <QTabWidget>
 #include <QStackedWidget>
 #include <QMenu>
@@ -161,7 +164,6 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       btnRemoveByColor_(new QPushButton(TR("Remover cor de fundo", "Remove background color"))),
       keyColor_(QColor(255, 0, 255)),
       saveFormatCombo_(new QComboBox),
-      updateBanner_(new QLabel),
       progressBar_(new QProgressBar),
       logEdit_(new QPlainTextEdit),
       maskEditCanvas_(new MaskEditCanvas(this)),
@@ -172,7 +174,8 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       inference_(new InferenceWorker(this)),
       modelCache_(inference_->cache()),
       preview_(new PreviewInspector(this)),
-      batch_(new BatchTabController(this))
+      batch_(new BatchTabController(this)),
+      updateChecker_(new UpdateChecker(this))
 {
     originalLabel_->setAlignment(Qt::AlignCenter);
 
@@ -357,6 +360,7 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     resultLayout->addWidget(resultScroll_);
 
     auto* previewSplitter = new QSplitter(Qt::Horizontal);
+    previewSplitter->setObjectName("previewSplitter");
     previewSplitter->setChildrenCollapsible(false);
     previewSplitter->setHandleWidth(12);
     previewSplitter->addWidget(originalPanel);
@@ -453,169 +457,41 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     editorFooterLayout->addWidget(btnSave_);
     workspaceLayout->addWidget(editorFooter);
 
-    auto* inspector = new QFrame;
-    inspector->setObjectName("inspector");
-    auto* inspectorLayout = new QVBoxLayout(inspector);
-    inspectorLayout->setContentsMargins(12, 12, 12, 12);
-    inspectorLayout->setSpacing(4);
-
-    // O inspector passa a ter seccoes colapsaveis: a principal (acao
-    // de remover) comeca aberta; as restantes comecam fechadas para o
-    // painel nao parecer uma lista infinita de opcoes.
-    auto* secRemove = new CollapsibleSection(
-        TR("Remover fundo", "Remove background"), true, this);
-    auto* secRemoveLayout = secRemove->contentLayout();
-
-    removalMethodCombo_->addItem(TR("🧠 IA (Rede neural)", "🧠 AI (Neural network)"));
-    removalMethodCombo_->addItem(TR("🎨 Cor / Chroma Key (Pixel Art)", "🎨 Color / Chroma Key (Pixel Art)"));
-    secRemoveLayout->addWidget(removalMethodCombo_);
-
-    // Modo 1: IA
-    auto* aiLayout = new QVBoxLayout(aiRemovalWidget_);
-    aiLayout->setContentsMargins(0, 0, 0, 0);
-    aiLayout->setSpacing(7);
-    auto* modelForm = new QFormLayout;
-    modelForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    modelForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
-    modelForm->addRow(TR("Modelo", "Model"), modelCombo_);
-    auto* modelPathLayout = new QHBoxLayout;
-    modelPathLayout->addWidget(modelPathEdit_);
-    modelPathLayout->addWidget(btnLoadModel_);
-    modelForm->addRow(TR("Arquivo", "File"), modelPathLayout);
-    aiLayout->addLayout(modelForm);
-    btnRemove_->setObjectName("primaryAction");
-    btnRemove_->setMinimumHeight(38);
-    aiLayout->addWidget(btnRemove_);
-    secRemoveLayout->addWidget(aiRemovalWidget_);
-
-    // Modo 2: Cor / Chroma Key (Pixel Art)
-    auto* colorLayout = new QVBoxLayout(colorRemovalWidget_);
-    colorLayout->setContentsMargins(0, 0, 0, 0);
-    colorLayout->setSpacing(7);
-    auto* colorForm = new QFormLayout;
-    colorForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    colorForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
-
-    auto* keyColorRow = new QHBoxLayout;
-    btnKeyColorSample_->setObjectName("colorPickerButton");
-    btnKeyColorSample_->setCursor(Qt::PointingHandCursor);
-    btnKeyColorSample_->setToolTip(TR("Clique para escolher a cor a ser removida",
-                                      "Click to choose the color to be removed"));
-    btnAutoDetectKeyColor_->setToolTip(TR("Detecta a cor predominante dos cantos da imagem",
-                                          "Detects the dominant color in image corners"));
-    keyColorRow->addWidget(btnKeyColorSample_, 1);
-    keyColorRow->addWidget(btnAutoDetectKeyColor_);
-    colorForm->addRow(TR("Cor alvo", "Target color"), keyColorRow);
-
-    colorToleranceSpin_->setRange(0, 100);
-    colorToleranceSpin_->setValue(0);
-    colorToleranceSpin_->setSuffix(" %");
-    colorToleranceSpin_->setToolTip(TR("0% para pixel art exato; aumente para fundos com ruído ou variações",
-                                       "0% for exact pixel art; increase for noisy backgrounds"));
-    colorForm->addRow(TR("Tolerância", "Tolerance"), colorToleranceSpin_);
-    colorLayout->addLayout(colorForm);
-
-    colorContiguousCheckBox_->setChecked(false);
-    colorContiguousCheckBox_->setToolTip(TR("Desmarcado: remove a cor em toda a imagem (inclusive entre pernas/braços);\nMarcado: remove apenas o fundo contíguo às bordas.",
-                                            "Unchecked: removes color in entire image (including holes between limbs);\nChecked: removes only background connected to the borders."));
-    colorLayout->addWidget(colorContiguousCheckBox_);
-
-    colorPixelArtCheckBox_->setChecked(true);
-    colorPixelArtCheckBox_->setToolTip(TR("Mantém as bordas perfeitamente duras sem suavização (essencial para Pixel Art e Sprites).",
-                                          "Keeps edges perfectly sharp without feathering (essential for Pixel Art & Sprites)."));
-    colorLayout->addWidget(colorPixelArtCheckBox_);
-
-    btnRemoveByColor_->setObjectName("primaryAction");
-    btnRemoveByColor_->setMinimumHeight(38);
-    colorLayout->addWidget(btnRemoveByColor_);
-    colorRemovalWidget_->setVisible(false);
-    secRemoveLayout->addWidget(colorRemovalWidget_);
-
-    // Fim da seccao 1: fecha o colapsavel e adiciona a seccao 2.
-    inspectorLayout->addWidget(secRemove);
-
-    auto* secOutput = new CollapsibleSection(
-        TR("Ajustes de saída", "Output adjustments"), false, this);
-    auto* secOutputLayout = secOutput->contentLayout();
-    auto* outputForm = new QFormLayout;
-    outputForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
-    outputForm->addRow(TR("Predefinição", "Preset"), presetCombo_);
-    outputForm->addRow(TR("Fundo ao salvar", "Background on save"),
-                       bgColorCombo_);
-    // Formato de saida: PNG e WebP guardam transparencia; JPEG
-    // compoe sobre o fundo escolhido (branco por omissao).
-    saveFormatCombo_->addItem(TR("PNG (transparente)",
-                                 "PNG (transparent)"));
-    saveFormatCombo_->addItem(TR("JPEG", "JPEG"));
-    saveFormatCombo_->addItem(TR("WebP", "WebP"));
-    outputForm->addRow(TR("Formato", "Format"),
-                       saveFormatCombo_);
-    secOutputLayout->addLayout(outputForm);
-
-    // Ajustes agrupados numa superficie propria: leem-se como um
-    // bloco coerente em vez de 5 linhas soltas.
-    auto* settingsBlock = new QFrame;
-    settingsBlock->setObjectName("settingsBlock");
-    auto* settingsBlockLayout = new QVBoxLayout(settingsBlock);
-    settingsBlockLayout->setContentsMargins(11, 10, 11, 10);
-    settingsBlockLayout->setSpacing(6);
-    settingsBlockLayout->addWidget(refineCheckBox_);
-    settingsBlockLayout->addWidget(noiseCheckBox_);
-    auto* noiseRow = new QHBoxLayout;
-    noiseRow->setContentsMargins(22, 0, 0, 0);
-    noiseThresholdSpin_->setRange(0, 255);
-    noiseThresholdSpin_->setValue(kAlphaThreshold);
-    noiseThresholdSpin_->setSuffix(" /255");
-    noiseThresholdSpin_->setToolTip(
-        TR("Alfa abaixo deste valor fica totalmente transparente",
-           "Alpha below this value becomes fully transparent"));
-    noiseRow->addWidget(new QLabel(TR("Limiar", "Threshold")));
-    noiseRow->addWidget(noiseThresholdSpin_, 1);
-    settingsBlockLayout->addLayout(noiseRow);
-    settingsBlockLayout->addWidget(stickerCheckBox_);
-    settingsBlockLayout->addWidget(shadowCheckBox_);
-    secOutputLayout->addWidget(settingsBlock);
-
-    // Fim da seccao 2: fecha e adiciona a seccao 3.
-    inspectorLayout->addWidget(secOutput);
-
-    auto* secManual = new CollapsibleSection(
-        TR("Ações e Retoque", "Actions and Retouch"),
-        false, this);
-    auto* secManualLayout = secManual->contentLayout();
-    auto* brushForm = new QFormLayout;
-    brushForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
-    brushForm->addRow(TR("Pincel", "Brush"), brushModeCombo_);
-    brushForm->addRow(TR("Tamanho", "Size"), brushRadiusSpin_);
-    secManualLayout->addLayout(brushForm);
-    auto* undoRow = new QHBoxLayout;
-    undoRow->addWidget(btnUndo_);
-    undoRow->addWidget(btnRedo_);
-    secManualLayout->addLayout(undoRow);
-    auto* actionRow = new QHBoxLayout;
-    actionRow->addWidget(btnAutoCrop_);
-    actionRow->addWidget(btnDragOut_);
-    secManualLayout->addLayout(actionRow);
-    auto* brushHint = new QLabel(TR(
-        "Após remover o fundo, use o pincel para corrigir detalhes, faça auto-recorte ou arraste o resultado.",
-        "After removing the background, use the brush to touch up details, auto-crop or drag the result."));
-    brushHint->setObjectName("inspectorHint");
-    brushHint->setWordWrap(true);
-    secManualLayout->addWidget(brushHint);
-    inspectorLayout->addWidget(secManual);
-    inspectorLayout->addStretch();
-
-    // O inspector vive dentro de uma area rolavel: com janelas baixas
-    // ele roda em vez de cortar os campos dos formularios.
-    auto* inspectorScroll = new QScrollArea;
-    inspectorScroll->setObjectName("inspectorScroll");
-    inspectorScroll->setWidget(inspector);
-    inspectorScroll->setWidgetResizable(true);
-    inspectorScroll->setFrameShape(QFrame::NoFrame);
-    inspectorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    inspectorScroll->setFixedWidth(280);
+    // O painel de opcoes (inspector) e construido pelo OptionsPanel:
+    // o MainWindow e dono dos widgets, mas o layout vive fora daqui.
+    OptionWidgets ow;
+    ow.removalMethodCombo = removalMethodCombo_;
+    ow.modelCombo = modelCombo_;
+    ow.modelPathEdit = modelPathEdit_;
+    ow.btnLoadModel = btnLoadModel_;
+    ow.btnRemove = btnRemove_;
+    ow.aiRemovalWidget = aiRemovalWidget_;
+    ow.colorRemovalWidget = colorRemovalWidget_;
+    ow.btnKeyColorSample = btnKeyColorSample_;
+    ow.btnAutoDetectKeyColor = btnAutoDetectKeyColor_;
+    ow.colorToleranceSpin = colorToleranceSpin_;
+    ow.colorContiguousCheckBox = colorContiguousCheckBox_;
+    ow.colorPixelArtCheckBox = colorPixelArtCheckBox_;
+    ow.btnRemoveByColor = btnRemoveByColor_;
+    ow.presetCombo = presetCombo_;
+    ow.bgColorCombo = bgColorCombo_;
+    ow.saveFormatCombo = saveFormatCombo_;
+    ow.refineCheckBox = refineCheckBox_;
+    ow.noiseCheckBox = noiseCheckBox_;
+    ow.noiseThresholdSpin = noiseThresholdSpin_;
+    ow.stickerCheckBox = stickerCheckBox_;
+    ow.shadowCheckBox = shadowCheckBox_;
+    ow.brushModeCombo = brushModeCombo_;
+    ow.brushRadiusSpin = brushRadiusSpin_;
+    ow.btnUndo = btnUndo_;
+    ow.btnRedo = btnRedo_;
+    ow.btnAutoCrop = btnAutoCrop_;
+    ow.btnDragOut = btnDragOut_;
+    QWidget* inspectorScroll = OptionsPanel::buildInspector(
+        ow, static_cast<int>(kAlphaThreshold), this);
 
     auto* contentSplitter = new QSplitter(Qt::Horizontal);
+    contentSplitter->setObjectName("contentSplitter");
     contentSplitter->setChildrenCollapsible(false);
     contentSplitter->addWidget(workspace);
     contentSplitter->addWidget(inspectorScroll);
@@ -645,9 +521,25 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
         connect(batch_, &BatchTabController::busyChanged,
                 this, &MainWindow::setUiBusy);
         connect(batch_, &BatchTabController::finished,
-                this, [this](int, int) {
+                this, [this](int ok, int errors) {
             emit jobFinished();
             maybeCloseAfterJobs();
+            // Resumo visual no fim do lote (so se nao foi cancelado
+            // durante o fecho da janela).
+            if (!closeRequested_) {
+                if (errors > 0) {
+                    QMessageBox::warning(this,
+                        TR("Lote concluído com erros", "Batch finished with errors"),
+                        TR("Processadas: %1 OK, %2 com erro.\nVeja o log para detalhes.",
+                           "Processed: %1 OK, %2 failed.\nSee the log for details.")
+                            .arg(ok).arg(errors));
+                } else if (ok > 0) {
+                    QMessageBox::information(this,
+                        TR("Lote concluído", "Batch completed"),
+                        TR("%1 imagens processadas com sucesso.",
+                           "%1 images processed successfully.").arg(ok));
+                }
+            }
         });
     }
     mainTabs_->addTab(batch_->createTab(), TR("Lote", "Batch"));
@@ -758,6 +650,12 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
             this,       &MainWindow::onRemoveFinished);
     connect(&colorWatcher_, &QFutureWatcher<QImage>::finished,
             this,            &MainWindow::onColorRemovalFinished);
+    connect(&saveWatcher_, &QFutureWatcher<QImage>::finished,
+            this,            &MainWindow::onSaveProcessingFinished);
+    connect(&postProcessWatcher_, &QFutureWatcher<QImage>::finished,
+            this,            &MainWindow::onPostProcessFinished);
+    connect(&autoCropWatcher_, &QFutureWatcher<QImage>::finished,
+            this,            &MainWindow::onAutoCropFinished);
 
     // Atalhos de teclado.
     auto* scOpen = new QShortcut(QKeySequence::Open, this);
@@ -766,6 +664,25 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     connect(scSave, &QShortcut::activated, this, &MainWindow::saveResult);
     auto* scCopy = new QShortcut(QKeySequence("Ctrl+Shift+C"), this);
     connect(scCopy, &QShortcut::activated, this, &MainWindow::copyResult);
+    // Ctrl+C tambem copia o resultado (documentado no README).
+    auto* scCopyPlain = new QShortcut(QKeySequence::Copy, this);
+    connect(scCopyPlain, &QShortcut::activated, this, &MainWindow::copyResult);
+    // Ctrl+D executa a remocao de fundo (atalho documentado no README).
+    auto* scRemove = new QShortcut(QKeySequence("Ctrl+D"), this);
+    connect(scRemove, &QShortcut::activated, this, &MainWindow::removeBackground);
+    // F1 abre a aba de Ajuda (procura pelo objectName do HelpWidget,
+    // nao depende da ordem das abas).
+    auto* scHelp = new QShortcut(QKeySequence("F1"), this);
+    connect(scHelp, &QShortcut::activated, this, [this]() {
+        if (!mainTabs_) return;
+        for (int i = 0; i < mainTabs_->count(); ++i) {
+            if (mainTabs_->widget(i)
+                    && mainTabs_->widget(i)->findChild<QWidget*>("helpView")) {
+                mainTabs_->setCurrentIndex(i);
+                return;
+            }
+        }
+    });
     auto* scPaste = new QShortcut(QKeySequence::Paste, this);
     connect(scPaste, &QShortcut::activated, this, &MainWindow::pasteImageFromClipboard);
     auto* scUndo = new QShortcut(QKeySequence::Undo, this);
@@ -823,6 +740,8 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     });
 
     restoreSettings();
+    // restoreSettings pode ter restaurado a cor alvo: atualizar o botao.
+    updateKeyColorButton();
 
     // Ação de toggle para visualização de máscara alfa-only
     actionShowMaskPreview_ = new QAction(TR("Mostrar máscara alfa", "Show alpha mask"), this);
@@ -833,6 +752,18 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
         showMaskPreview_ = checked;
         updateResultDisplay();
     });
+    // Menu Ficheiro: abrir, recentes, sair.
+    QMenu* fileMenu = menuBar()->addMenu(TR("Ficheiro", "File"));
+    QAction* actOpen = fileMenu->addAction(TR("Abrir...", "Open..."));
+    actOpen->setShortcut(QKeySequence::Open);
+    connect(actOpen, &QAction::triggered, this, &MainWindow::openImage);
+    recentMenu_ = fileMenu->addMenu(TR("Abrir recente", "Open recent"));
+    fileMenu->addSeparator();
+    QAction* actQuit = fileMenu->addAction(TR("Sair", "Quit"));
+    actQuit->setShortcut(QKeySequence::Quit);
+    connect(actQuit, &QAction::triggered, this, &QWidget::close);
+    rebuildRecentMenu();
+
     QMenu* viewMenu = menuBar()->addMenu(TR("Ver", "View"));
     viewMenu->addAction(actionShowMaskPreview_);
 
@@ -856,7 +787,9 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     updateWorkspaceStack();
 
     // Verificacao de nova versao (assincrona, silenciosa em falha).
-    checkForUpdate();
+    connect(updateChecker_, &UpdateChecker::updateAvailable,
+            this, &MainWindow::showUpdateBanner);
+    updateChecker_->check();
 }
 
 QWidget* MainWindow::createEmptyStateWidget()
@@ -965,6 +898,67 @@ void MainWindow::updatePreviewZoom()
     preview_->updatePreviewZoom();
 }
 
+void MainWindow::updateWindowTitle()
+{
+    const QString base = QStringLiteral("Aletheia %1").arg(ALETHEIA_VERSION);
+    if (currentImagePath_.isEmpty()) {
+        setWindowTitle(base);
+    } else {
+        setWindowTitle(base + " — " + QFileInfo(currentImagePath_).fileName());
+    }
+}
+
+void MainWindow::addToRecentFiles(const QString& path)
+{
+    // Remove duplicados e coloca no topo; limita a 10.
+    recentFiles_.removeAll(path);
+    recentFiles_.prepend(path);
+    while (recentFiles_.size() > 10)
+        recentFiles_.removeLast();
+    rebuildRecentMenu();
+    // Persiste para a proxima sessao.
+    QSettings settings("aletheia", "aletheia");
+    settings.setValue("recent/files", recentFiles_);
+}
+
+void MainWindow::rebuildRecentMenu()
+{
+    if (!recentMenu_) return;
+    recentMenu_->clear();
+    if (recentFiles_.isEmpty()) {
+        QAction* none = recentMenu_->addAction(
+            TR("(vazio)", "(empty)"));
+        none->setEnabled(false);
+        return;
+    }
+    for (const QString& f : recentFiles_) {
+        if (!QFile::exists(f)) continue; // ficheiro ja nao existe
+        QAction* act = recentMenu_->addAction(QFileInfo(f).fileName());
+        act->setToolTip(f);
+        act->setData(f);
+        connect(act, &QAction::triggered, this, &MainWindow::openRecentFile);
+    }
+    recentMenu_->addSeparator();
+    QAction* clear = recentMenu_->addAction(TR("Limpar lista", "Clear list"));
+    connect(clear, &QAction::triggered, this, [this]() {
+        recentFiles_.clear();
+        QSettings("aletheia", "aletheia").setValue("recent/files", recentFiles_);
+        rebuildRecentMenu();
+    });
+}
+
+void MainWindow::openRecentFile()
+{
+    auto* act = qobject_cast<QAction*>(sender());
+    if (!act) return;
+    const QString path = act->data().toString();
+    if (!path.isEmpty() && QFile::exists(path))
+        openPath(path);
+    else
+        QMessageBox::warning(this, TR("Erro", "Error"),
+            TR("O ficheiro já não existe:\n", "The file no longer exists:\n") + path);
+}
+
 void MainWindow::openImage() {
     if (isBusy_) return;
     const QString path = QFileDialog::getOpenFileName(
@@ -981,18 +975,59 @@ void MainWindow::openPath(const QString& path) {
     // setAutoTransform aplica a orientacao EXIF (fotos de telemovel).
     const QImage img = ImagePostProcessor::loadImageExif(path);
     if (img.isNull()) {
-        QMessageBox::warning(this, TR("Erro", "Error"),
-            TR("Nao foi possivel carregar:\n", "Could not load:\n")
-                + path);
+        QString hint;
+        ImagePostProcessor::isFormatSupported(path, &hint);
+        QString msg = TR("Nao foi possivel carregar:\n", "Could not load:\n")
+                + path;
+        if (!hint.isEmpty()) {
+            const QString suffix = QFileInfo(path).suffix().toLower();
+            if (ImagePostProcessor::pluginDependentExtensions().contains(suffix)) {
+                msg += TR("\n\nO formato .%1 precisa do pacote "
+                          "'qt6-image-formats-plugins' (HEIC/AVIF/WebP).",
+                          "\n\nThe .%1 format requires the "
+                          "'qt6-image-formats-plugins' package (HEIC/AVIF/WebP).")
+                          .arg(suffix.toUpper());
+            } else {
+                msg += "\n\n" + hint;
+            }
+        }
+        QMessageBox::warning(this, TR("Erro", "Error"), msg);
         return;
     }
+    // Aviso para imagens muito grandes: o processamento usa memoria
+    // proporcional a w*h (máscara, flood-fill, undo stack).
+    const qint64 megapixels =
+        static_cast<qint64>(img.width()) * img.height() / 1000000;
+    if (megapixels > 50) {
+        QMessageBox::warning(this, TR("Imagem grande", "Large image"),
+            TR("Esta imagem tem %1 MP. O processamento pode demorar "
+               "e usar muita memória RAM. Considere redimensionar antes.",
+               "This image is %1 MP. Processing may be slow and use "
+               "a lot of RAM. Consider resizing it first.")
+                .arg(megapixels));
+    }
+
     ++imageGeneration_;
     preview_->clearResult();
     btnAutoCrop_->setEnabled(false);
     btnDragOut_->setEnabled(false);
     preview_->setOriginal(img);
     currentImagePath_ = path;
-    imageNameLabel_->setText(QFileInfo(path).fileName());
+    // Nome + tamanho do ficheiro na barra de ferramentas.
+    {
+        const qint64 sizeBytes = QFileInfo(path).size();
+        QString sizeStr;
+        if (sizeBytes >= 1024 * 1024)
+            sizeStr = QStringLiteral("%1 MB").arg(sizeBytes / 1048576.0, 0, 'f', 1);
+        else if (sizeBytes >= 1024)
+            sizeStr = QStringLiteral("%1 KB").arg(sizeBytes / 1024.0, 0, 'f', 1);
+        else
+            sizeStr = QStringLiteral("%1 B").arg(sizeBytes);
+        imageNameLabel_->setText(
+            QStringLiteral("%1  (%2)").arg(QFileInfo(path).fileName(), sizeStr));
+    }
+    updateWindowTitle();
+    addToRecentFiles(path);
     // O canvas do resultado e limpo por completo: sem isto, Salvar e
     // Copiar continuavam a exportar a imagem anterior.
     maskEditCanvas_->clearImage();
@@ -1174,8 +1209,20 @@ void MainWindow::onRemoveFinished(const InferenceResult& res)
     updateResultDisplay();
     btnAutoCrop_->setEnabled(true);
     btnDragOut_->setEnabled(true);
-    logEdit_->appendPlainText("[OK] " + TR("Fundo removido.",
-                                           "Background removed."));
+    logEdit_->appendPlainText("[OK] " + TR("Fundo removido.", "Background removed."));
+    // Mostra o provider e a resolucao de entrada do modelo usado (GPU vs
+    // CPU fica visivel no log; o BackgroundRemover guarda-os em cache).
+    {
+        QMutexLocker lock(&modelCache_->mutex);
+        if (modelCache_->remover) {
+            logEdit_->appendPlainText(
+                QString("[INFO] %1: %2 · %3×%4")
+                    .arg(TR("Modelo", "Model"),
+                         modelCache_->remover->provider(),
+                         QString::number(modelCache_->remover->inputSize()),
+                         QString::number(modelCache_->remover->inputSize())));
+        }
+    }
     emit jobFinished();
     maybeCloseAfterJobs();
 }
@@ -1237,9 +1284,42 @@ void MainWindow::saveResult() {
         saveOptions.backgroundColor = Qt::white;
     }
 
-    const QImage toSave = ImagePostProcessor::apply(
-        preview_->resultImage(), saveOptions, preview_->originalImage());
+    // O pós-processamento (sticker, sombra) pode demorar em fotos
+    // grandes; corre na thread de trabalho para nao congelar a UI.
+    // O ficheiro e escrito em onSaveProcessingFinished().
+    pendingSavePath_ = path;
+    pendingSaveFormat_ = fmt;
+    pendingSaveOptions_ = saveOptions;
+    setUiBusy(true);
+    progressBar_->setRange(0, 0);
+    progressBar_->setValue(0);
+    progressBar_->setVisible(true);
+    btnSave_->setEnabled(false);
+    logEdit_->appendPlainText(
+        "[INFO] " + TR("A processar imagem para salvar...",
+                       "Processing image for save..."));
+    saveWatcher_.setFuture(QtConcurrent::run(
+        [img = preview_->resultImage(), opts = saveOptions,
+         orig = preview_->originalImage()]() {
+            return ImagePostProcessor::apply(img, opts, orig);
+        }));
+}
 
+void MainWindow::onSaveProcessingFinished()
+{
+    progressBar_->setVisible(false);
+    progressBar_->setRange(0, 100);
+    progressBar_->setValue(0);
+    setUiBusy(false);
+    btnSave_->setEnabled(true);
+
+    const QImage toSave = saveWatcher_.result();
+    const QString path = pendingSavePath_;
+    const QByteArray fmt = pendingSaveFormat_;
+    const ProcessingOptions saveOptions = pendingSaveOptions_;
+    const QString extension = QString::fromLatin1(fmt).toLower();
+
+    QSettings settings("aletheia", "aletheia");
     QImageWriter writer(path, fmt);
     if (extension == "png" && saveOptions.pngCompression >= 0) {
         writer.setQuality(-1); // PNG usa compressão, não quality
@@ -1260,6 +1340,8 @@ void MainWindow::saveResult() {
         logEdit_->appendPlainText(
             "[OK] " + TR("Imagem salva: ", "Image saved: ") + path);
     }
+    emit jobFinished();
+    maybeCloseAfterJobs();
 }
 
 QString MainWindow::saveFormatFilter() const
@@ -1295,14 +1377,59 @@ void MainWindow::copyResult()
             TR("Remova o fundo primeiro.", "Remove the background first."));
         return;
     }
-    ProcessingOptions copyOptions = currentProcessingOptions();
-    const QImage toCopy = ImagePostProcessor::apply(
-        preview_->resultImage(), copyOptions, preview_->originalImage());
+    // O pós-processamento (sticker/sombra) corre na thread de trabalho
+    // para nao congelar a UI; a copia acontece em onPostProcessFinished().
+    pendingAction_ = PendingAction::CopyToClipboard;
+    pendingPostOptions_ = currentProcessingOptions();
+    setUiBusy(true);
+    progressBar_->setRange(0, 0);
+    progressBar_->setVisible(true);
+    postProcessWatcher_.setFuture(QtConcurrent::run(
+        [img = preview_->resultImage(), opts = pendingPostOptions_,
+         orig = preview_->originalImage()]() {
+            return ImagePostProcessor::apply(img, opts, orig);
+        }));
+}
 
-    QApplication::clipboard()->setImage(toCopy);
-    logEdit_->appendPlainText(
-        "[OK] " + TR("Resultado copiado para a area de transferencia.",
-                     "Result copied to the clipboard."));
+void MainWindow::onPostProcessFinished()
+{
+    progressBar_->setVisible(false);
+    progressBar_->setRange(0, 100);
+    setUiBusy(false);
+
+    const QImage result = postProcessWatcher_.result();
+    const PendingAction action = pendingAction_;
+    pendingAction_ = PendingAction::None;
+
+    if (action == PendingAction::CopyToClipboard) {
+        QApplication::clipboard()->setImage(result);
+        logEdit_->appendPlainText(
+            "[OK] " + TR("Resultado copiado para a area de transferencia.",
+                         "Result copied to the clipboard."));
+    } else if (action == PendingAction::DragOut) {
+        const QString tempDir = QDir::tempPath();
+        const QString baseName = currentImagePath_.isEmpty()
+            ? QStringLiteral("bg_removed")
+            : QFileInfo(currentImagePath_).completeBaseName()
+                  + QStringLiteral("_rembg");
+        const QString tempPath = QDir(tempDir).filePath(
+            baseName + QStringLiteral(".png"));
+        result.save(tempPath, "PNG");
+
+        auto* drag = new QDrag(this);
+        auto* mimeData = new QMimeData;
+        mimeData->setImageData(result);
+        mimeData->setUrls({QUrl::fromLocalFile(tempPath)});
+        drag->setMimeData(mimeData);
+        const QPixmap preview = QPixmap::fromImage(
+            result.scaled(128, 128, Qt::KeepAspectRatio,
+                          Qt::SmoothTransformation));
+        drag->setPixmap(preview);
+        drag->setHotSpot(QPoint(preview.width() / 2, preview.height() / 2));
+        drag->exec(Qt::CopyAction);
+    }
+    emit jobFinished();
+    maybeCloseAfterJobs();
 }
 
 void MainWindow::copyTransparentResult()
@@ -1345,86 +1472,15 @@ void MainWindow::onSaveFormatChanged(int index)
     Q_UNUSED(index)
 }
 
-void MainWindow::checkForUpdate()
-{
-    // Uma vez por sessao, assincrono e silencioso: falha de rede nao
-    // deve incomodar quem trabalha offline. A verificacao pode ser
-    // desativada por variavel de ambiente ou QSettings; nao envia
-    // imagens, apenas consulta a API publica de releases.
-    if (qEnvironmentVariableIsSet("ALETHEIA_NO_UPDATE_CHECK") ||
-        qEnvironmentVariableIsSet("BG_REMOVER_NO_UPDATE_CHECK")) return;
-    if (!QSettings("aletheia", "aletheia")
-             .value("update/check", true).toBool()) {
-        return;
-    }
-    if (updateNam_) return;
-    updateNam_ = new QNetworkAccessManager(this);
-
-    QNetworkRequest request(QUrl(QStringLiteral(
-        "https://api.github.com/repos/MarielCarlosFrias/aletheia"
-        "/releases/latest")));
-    request.setRawHeader("Accept", "application/vnd.github+json");
-    request.setRawHeader("User-Agent",
-                         QByteArray("aletheia/") + ALETHEIA_VERSION);
-    request.setTransferTimeout(5000);
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-    QNetworkReply* reply = updateNam_->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            &MainWindow::onUpdateCheckFinished);
-}
-
-void MainWindow::onUpdateCheckFinished()
-{
-    QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
-    if (!reply) return;
-    reply->deleteLater();
-
-    if (reply->error() != QNetworkReply::NoError) {
-        // Offline ou rate limit: sigiloso.
-        return;
-    }
-
-    const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-    if (doc.isObject()) {
-        latestRemoteVersion_ =
-            doc.object().value("tag_name").toString();
-    }
-    if (latestRemoteVersion_.isEmpty()) return;
-
-    // Comparacao semantica simples (major.minor.patch), ignorando o "v".
-    const QString remote = latestRemoteVersion_.startsWith('v')
-        ? latestRemoteVersion_.mid(1) : latestRemoteVersion_;
-    const QString local = QStringLiteral(ALETHEIA_VERSION);
-    auto parse = [](const QString& s) {
-        const QStringList parts = s.split('.');
-        QList<int> nums;
-        for (const QString& p : parts) nums << p.toInt();
-        while (nums.size() < 3) nums << 0;
-        return nums;
-    };
-    const QList<int> r = parse(remote);
-    const QList<int> l = parse(local);
-
-    if (r.at(0) > l.at(0)
-        || (r.at(0) == l.at(0) && r.at(1) > l.at(1))
-        || (r.at(0) == l.at(0) && r.at(1) == l.at(1) && r.at(2) > l.at(2))) {
-        showUpdateBanner(latestRemoteVersion_);
-    }
-}
-
 void MainWindow::showUpdateBanner(const QString& version)
 {
     if (version.isEmpty()) return;
 
-    // Banner clicavel no topo do workspace. O texto tem de ser
-    // rich text com <a href>; sem isso linkActivated nunca dispara.
+    // Banner clicavel no topo do workspace (widget do UpdateChecker).
+    QLabel* banner = updateChecker_->banner();
     const QUrl releasesUrl(QStringLiteral(
         "https://github.com/MarielCarlosFrias/aletheia/releases"));
-    updateBanner_->setTextFormat(Qt::RichText);
-    updateBanner_->setOpenExternalLinks(false);
-    updateBanner_->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
-    updateBanner_->setText(
+    banner->setText(
         TR("⬆ <a href=\"%1\" style=\"color:#102217;\">"
            "Nova versão %2 disponível — clique para abrir as releases"
            "</a>",
@@ -1432,19 +1488,17 @@ void MainWindow::showUpdateBanner(const QString& version)
            "New version %2 available — click to open releases"
            "</a>")
             .arg(releasesUrl.toString(), version));
-    updateBanner_->setCursor(Qt::PointingHandCursor);
-    updateBanner_->setObjectName("updateBanner");
-    updateBanner_->setWordWrap(true);
+    banner->setVisible(true);
 
     // Inserido antes do divisor de preview (posicao 0 do workspace).
     if (auto* wl = workspaceLayout()) {
-        if (wl->indexOf(updateBanner_) < 0)
-            wl->insertWidget(0, updateBanner_);
+        if (wl->indexOf(banner) < 0)
+            wl->insertWidget(0, banner);
     }
 
     // Evita ligacoes duplicadas se o banner for mostrado mais de uma vez.
-    QObject::disconnect(updateBanner_, nullptr, this, nullptr);
-    connect(updateBanner_, &QLabel::linkActivated, this,
+    QObject::disconnect(banner, nullptr, this, nullptr);
+    connect(banner, &QLabel::linkActivated, this,
             [releasesUrl](const QString&) {
         QDesktopServices::openUrl(releasesUrl);
     });
@@ -1571,6 +1625,17 @@ void MainWindow::restoreSettings()
     const QByteArray geometry =
         settings.value("ui/geometry").toByteArray();
     if (!geometry.isEmpty()) restoreGeometry(geometry);
+    // Restaura os divisores (preview original/resultado e
+    // workspace/inspector) para o utilizador nao ter de os redimensionar
+    // em todas as sessoes.
+    if (auto* ps = findChild<QSplitter*>("previewSplitter")) {
+        const QByteArray st = settings.value("ui/previewSplitter").toByteArray();
+        if (!st.isEmpty()) ps->restoreState(st);
+    }
+    if (auto* cs = findChild<QSplitter*>("contentSplitter")) {
+        const QByteArray st = settings.value("ui/contentSplitter").toByteArray();
+        if (!st.isEmpty()) cs->restoreState(st);
+    }
 
     batch_->folderEdit()->setText(settings.value("batch/inputDir").toString());
     {
@@ -1583,18 +1648,57 @@ void MainWindow::restoreSettings()
     }
     brushRadiusSpin_->setValue(
         settings.value("brush/radius", 10).toInt());
+    {
+        const QSignalBlocker blocker(brushModeCombo_);
+        const int bm = settings.value("brush/mode", 0).toInt();
+        if (bm >= 0 && bm < brushModeCombo_->count())
+            brushModeCombo_->setCurrentIndex(bm);
+    }
     refineCheckBox_->setChecked(
         settings.value("options/refineEdges", false).toBool());
     noiseCheckBox_->setChecked(
         settings.value("options/cleanNoise", false).toBool());
     noiseThresholdSpin_->setValue(
         settings.value("options/noiseThreshold", kAlphaThreshold).toInt());
+    stickerCheckBox_->setChecked(
+        settings.value("options/sticker", false).toBool());
+    shadowCheckBox_->setChecked(
+        settings.value("options/shadow", false).toBool());
+    {
+        const QSignalBlocker blocker(removalMethodCombo_);
+        const int rm = settings.value("removal/method", 0).toInt();
+        if (rm >= 0 && rm < removalMethodCombo_->count())
+            removalMethodCombo_->setCurrentIndex(rm);
+    }
+    {
+        const QSignalBlocker blocker(presetCombo_);
+        const int ps = settings.value("output/preset", 0).toInt();
+        if (ps >= 0 && ps < presetCombo_->count())
+            presetCombo_->setCurrentIndex(ps);
+    }
+    colorToleranceSpin_->setValue(
+        settings.value("color/tolerance", 0).toInt());
+    colorContiguousCheckBox_->setChecked(
+        settings.value("color/contiguous", false).toBool());
+    colorPixelArtCheckBox_->setChecked(
+        settings.value("color/pixelArt", true).toBool());
+    {
+        const QVariant keyVar = settings.value("color/keyColor");
+        if (keyVar.isValid()) {
+            const QColor c = keyVar.value<QColor>();
+            if (c.isValid()) keyColor_ = c;
+        }
+    }
     {
         const QSignalBlocker blocker(saveFormatCombo_);
         const int fmt = settings.value("output/saveFormat", 0).toInt();
         if (fmt >= 0 && fmt < saveFormatCombo_->count())
             saveFormatCombo_->setCurrentIndex(fmt);
     }
+
+    // Lista de ficheiros recentes (menu Ficheiro > Abrir recente).
+    recentFiles_ = settings.value("recent/files").toStringList();
+    rebuildRecentMenu();
 
     const QVariant colorVar = settings.value("output/customColor");
     if (colorVar.isValid()) {
@@ -1619,15 +1723,28 @@ void MainWindow::saveSettings()
 {
     QSettings settings("aletheia", "aletheia");
     settings.setValue("ui/geometry", saveGeometry());
+    if (auto* ps = findChild<QSplitter*>("previewSplitter"))
+        settings.setValue("ui/previewSplitter", ps->saveState());
+    if (auto* cs = findChild<QSplitter*>("contentSplitter"))
+        settings.setValue("ui/contentSplitter", cs->saveState());
     settings.setValue("batch/inputDir", batch_->folderEdit()->text());
     settings.setValue("batch/outputDir", batch_->outputDirEdit()->text());
     settings.setValue("brush/radius", brushRadiusSpin_->value());
+    settings.setValue("brush/mode", brushModeCombo_->currentIndex());
     settings.setValue("options/refineEdges",
                       refineCheckBox_->isChecked());
     settings.setValue("options/cleanNoise",
                       noiseCheckBox_->isChecked());
     settings.setValue("options/noiseThreshold",
                       noiseThresholdSpin_->value());
+    settings.setValue("options/sticker", stickerCheckBox_->isChecked());
+    settings.setValue("options/shadow", shadowCheckBox_->isChecked());
+    settings.setValue("removal/method", removalMethodCombo_->currentIndex());
+    settings.setValue("output/preset", presetCombo_->currentIndex());
+    settings.setValue("color/tolerance", colorToleranceSpin_->value());
+    settings.setValue("color/contiguous", colorContiguousCheckBox_->isChecked());
+    settings.setValue("color/pixelArt", colorPixelArtCheckBox_->isChecked());
+    settings.setValue("color/keyColor", keyColor_);
     settings.setValue("output/bgIndex", bgColorCombo_->currentIndex());
     settings.setValue("output/customColor", customBgColor_);
     settings.setValue("output/saveFormat",
@@ -1646,7 +1763,8 @@ void MainWindow::closeEvent(QCloseEvent* event)
         batch_->requestCancel();
 
     if (inference_->isRunning() || batch_->isRunning()
-        || colorWatcher_.isRunning()) {
+        || colorWatcher_.isRunning() || saveWatcher_.isRunning()
+        || postProcessWatcher_.isRunning() || autoCropWatcher_.isRunning()) {
         if (!closeRequested_) {
             closeRequested_ = true;
             logEdit_->appendPlainText("[INFO] " + TR(
@@ -1665,7 +1783,8 @@ void MainWindow::maybeCloseAfterJobs()
 {
     if (!closeRequested_) return;
     if (inference_->isRunning() || batch_->isRunning()
-        || colorWatcher_.isRunning()) return;
+        || colorWatcher_.isRunning() || saveWatcher_.isRunning()
+        || postProcessWatcher_.isRunning() || autoCropWatcher_.isRunning()) return;
 
     // O close() volta a entrar em closeEvent(); sem jobs pendentes
     // a janela fecha normalmente.
@@ -1779,6 +1898,7 @@ void MainWindow::pasteImageFromClipboard()
         btnDragOut_->setEnabled(false);
         preview_->setOriginal(img);
         currentImagePath_.clear();
+        updateWindowTitle();
         imageNameLabel_->setText(TR("Colada da área de transferência",
                                     "Pasted from clipboard"));
         maskEditCanvas_->clearImage();
@@ -1814,8 +1934,26 @@ void MainWindow::pasteImageFromClipboard()
 void MainWindow::autoCropResult()
 {
     if (isBusy_ || preview_->resultImage().isNull()) return;
+    if (autoCropWatcher_.isRunning()) return;
 
-    const QImage cropped = ImagePostProcessor::autoCrop(preview_->resultImage(), 2);
+    // contentBounds percorre todos os pixels: em fotos grandes isto
+    // congelava a UI; agora corre na thread de trabalho.
+    setUiBusy(true);
+    progressBar_->setRange(0, 0);
+    progressBar_->setVisible(true);
+    autoCropWatcher_.setFuture(QtConcurrent::run(
+        [img = preview_->resultImage()]() {
+            return ImagePostProcessor::autoCrop(img, 2);
+        }));
+}
+
+void MainWindow::onAutoCropFinished()
+{
+    progressBar_->setVisible(false);
+    progressBar_->setRange(0, 100);
+    setUiBusy(false);
+
+    const QImage cropped = autoCropWatcher_.result();
     if (cropped.size() == preview_->resultImage().size()) {
         logEdit_->appendPlainText("[INFO] " + TR("Nenhuma borda vazia para recortar.",
                                                 "No empty border to crop."));
@@ -1828,6 +1966,8 @@ void MainWindow::autoCropResult()
         .arg(TR("Auto-recorte aplicado", "Auto-crop applied"))
         .arg(preview_->resultImage().width())
         .arg(preview_->resultImage().height()));
+    emit jobFinished();
+    maybeCloseAfterJobs();
 }
 
 void MainWindow::presetChanged(int index)
@@ -1899,6 +2039,7 @@ void MainWindow::presetChanged(int index)
 
 void MainWindow::startDragOut()
 {
+    if (isBusy_) return;
     if (preview_->resultImage().isNull()) return;
 
     ProcessingOptions dragOptions = currentProcessingOptions();
@@ -1907,28 +2048,18 @@ void MainWindow::startDragOut()
         dragOptions.backgroundStyle = ProcessingOptions::BgSolidColor;
         dragOptions.backgroundColor = Qt::white;
     }
-    const QImage finalImage = ImagePostProcessor::apply(
-        preview_->resultImage(), dragOptions, preview_->originalImage());
-
-    const QString tempDir = QDir::tempPath();
-    const QString baseName = currentImagePath_.isEmpty()
-        ? QStringLiteral("bg_removed")
-        : QFileInfo(currentImagePath_).completeBaseName() + QStringLiteral("_rembg");
-    const QString tempPath = QDir(tempDir).filePath(baseName + QStringLiteral(".png"));
-    finalImage.save(tempPath, "PNG");
-
-    auto* drag = new QDrag(this);
-    auto* mimeData = new QMimeData;
-    mimeData->setImageData(finalImage);
-    mimeData->setUrls({QUrl::fromLocalFile(tempPath)});
-    drag->setMimeData(mimeData);
-
-    const QPixmap preview = QPixmap::fromImage(
-        finalImage.scaled(128, 128, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    drag->setPixmap(preview);
-    drag->setHotSpot(QPoint(preview.width() / 2, preview.height() / 2));
-
-    drag->exec(Qt::CopyAction);
+    // Pós-processamento na thread de trabalho; o drag inicia em
+    // onPostProcessFinished().
+    pendingAction_ = PendingAction::DragOut;
+    pendingPostOptions_ = dragOptions;
+    setUiBusy(true);
+    progressBar_->setRange(0, 0);
+    progressBar_->setVisible(true);
+    postProcessWatcher_.setFuture(QtConcurrent::run(
+        [img = preview_->resultImage(), opts = dragOptions,
+         orig = preview_->originalImage()]() {
+            return ImagePostProcessor::apply(img, opts, orig);
+        }));
 }
 
 void MainWindow::updateKeyColorButton()

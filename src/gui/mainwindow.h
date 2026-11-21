@@ -22,6 +22,7 @@ class QComboBox;
 class QCheckBox;
 class QSpinBox;
 class QTabWidget;
+class QMenu;
 class QResizeEvent;
 class QCloseEvent;
 class QDragEnterEvent;
@@ -37,6 +38,7 @@ class ModelManagerWidget;
 class PreviewInspector;
 class InferenceWorker;
 class BatchTabController;
+class UpdateChecker;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -76,7 +78,6 @@ private slots:
     void bgColorChanged(int index);
     void editingDone();
     void onSaveFormatChanged(int index);
-    void onUpdateCheckFinished();
     void showUpdateBanner(const QString& version);
     void pasteImageFromClipboard();
     void autoCropResult();
@@ -87,8 +88,15 @@ private slots:
     void autoDetectKeyColor();
     void removeByColor();
     void onColorRemovalFinished();
+    void onSaveProcessingFinished();
+    void onPostProcessFinished();
+    void onAutoCropFinished();
+    void openRecentFile();
 
 private:
+    void updateWindowTitle();
+    void addToRecentFiles(const QString& path);
+    void rebuildRecentMenu();
     void updateKeyColorButton();
     void setPreviewZoom(int percent);
     void zoomAt(int percent, const QPoint& globalPos);
@@ -103,7 +111,6 @@ private:
     void populateModelCombo();
     void restoreSettings();
     void saveSettings();
-    void checkForUpdate();
     QWidget* createEmptyStateWidget();
     void updateWorkspaceStack();
     QVBoxLayout* workspaceLayout();
@@ -159,7 +166,6 @@ private:
     QColor keyColor_ = QColor(255, 0, 255);
     QString customBgImagePath_;
     QComboBox* saveFormatCombo_;
-    QLabel* updateBanner_;
     QProgressBar* progressBar_;
     QPlainTextEdit* logEdit_;
     MaskEditCanvas* maskEditCanvas_;
@@ -179,22 +185,41 @@ private:
     QAction *actionShowMaskPreview_ = nullptr;
 
     QString currentImagePath_;
+    QStringList recentFiles_;
+    QMenu* recentMenu_ = nullptr;
     // Muda sempre que uma imagem nova e carregada; resultados de
     // inferencias antigas sao descartados em onRemoveFinished().
     quint64 imageGeneration_ = 0;
     // Inferencia em thread de trabalho (cache do modelo + ONNX).
     InferenceWorker* inference_ = nullptr;
     std::shared_ptr<ModelCache> modelCache_;
-    QNetworkAccessManager* updateNam_ = nullptr;
-    QString latestRemoteVersion_;
     // Pre-visualizacao e zoom: imagens (original/resultado) e logica de
     // escala/ancoragem do zoom.
     PreviewInspector* preview_ = nullptr;
     // Aba "Lote": pastas, plano e processamento em serie.
     BatchTabController* batch_ = nullptr;
+    // Verificacao de atualizacoes (GitHub Releases API).
+    UpdateChecker* updateChecker_ = nullptr;
     // Remocao por cor: a inundacao de regiao pode demorar segundos
     // numa foto grande, por isso corre na thread de trabalho.
     QFutureWatcher<QImage> colorWatcher_;
+    // Pós-processamento do save (sticker/sombra) tambem pode demorar
+    // em fotos grandes; corre na thread de trabalho e o ficheiro e
+    // escrito quando termina.
+    QFutureWatcher<QImage> saveWatcher_;
+    QString pendingSavePath_;
+    QByteArray pendingSaveFormat_;
+    ProcessingOptions pendingSaveOptions_;
+
+    // Watcher generico para copy/drag-out: o pós-processamento pesado
+    // (sticker/sombra) tambem corre fora da thread da UI.
+    enum class PendingAction { None, CopyToClipboard, DragOut };
+    QFutureWatcher<QImage> postProcessWatcher_;
+    PendingAction pendingAction_ = PendingAction::None;
+    ProcessingOptions pendingPostOptions_;
+    // Auto-recorte (contentBounds percorre todos os pixels) tambem
+    // corre na thread de trabalho.
+    QFutureWatcher<QImage> autoCropWatcher_;
 };
 
 #endif

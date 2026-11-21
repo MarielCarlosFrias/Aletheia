@@ -138,10 +138,19 @@ BatchProcessor::Result BatchProcessor::processDirectory(
                     if (img.isNull()) {
                         QMutexLocker lock(&resultMutex);
                         result.errors++;
-                        const QString err = I18n::tr("Falha ao carregar a imagem", "Failed to load the image");
+                        QString err = I18n::tr("Falha ao carregar a imagem",
+                                              "Failed to load the image");
+                        // Se o formato precisa de plugin externo (HEIC/AVIF/
+                        // WebP), diz quais os pacotes em falta.
+                        QString hint;
+                        if (!ImagePostProcessor::isFormatSupported(
+                                entry.inputPath, &hint) && !hint.isEmpty()) {
+                            err += QStringLiteral(" (%1)").arg(hint);
+                        }
                         result.errorMessages.append("[ERRO] " + file + ": " + err);
                         QMutexLocker clog(&coutMutex);
-                        std::cerr << "[ERRO] " << file.toStdString() << ": " << err.toStdString() << std::endl;
+                        std::cerr << "[ERRO] " << file.toStdString() << ": "
+                                  << err.toStdString() << std::endl;
                     } else {
                         // Reutiliza a sessao carregada uma unica vez:
                         // chamar get() por imagem re-hasheava o modelo
@@ -203,6 +212,9 @@ BatchProcessor::Result BatchProcessor::processDirectory(
         for (int w = 0; w < workerCount; ++w) {
             workers.emplace_back([&]() {
                 for (;;) {
+                    // Verifica o pedido de cancelamento externo (SIGINT)
+                    // antes de iniciar a proxima imagem.
+                    if (cancelFlag_ && cancelFlag_->load()) break;
                     const int idx = nextIndex.fetch_add(1);
                     if (idx >= plan.size()) break;
                     processEntry(plan[idx], idx);
@@ -211,6 +223,16 @@ BatchProcessor::Result BatchProcessor::processDirectory(
         }
         for (auto& worker : workers) {
             worker.join();
+        }
+
+        // Se houve cancelamento externo, conta as imagens nao processadas
+        // como erros e marca o resultado como cancelado (nao fatal).
+        if (cancelFlag_ && cancelFlag_->load()) {
+            const int processed = result.ok + result.errors;
+            if (processed < result.total) {
+                result.errors += result.total - processed;
+                result.cancelled = true;
+            }
         }
     } catch (const std::exception& e) {
         result.fatal = true;

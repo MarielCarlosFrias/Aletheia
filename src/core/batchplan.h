@@ -17,8 +17,12 @@ namespace BatchPlan {
 
 inline const QSet<QString>& imageExts()
 {
+    // Inclui formatos que precisam de plugin externo (HEIC/AVIF/HEIF/JXL):
+    // se o plugin nao estiver instalado, o BatchProcessor reporta o erro
+    // com a mensagem util de isFormatSupported(); se estiver, processa.
     static const QSet<QString> exts = {
-        "png", "jpg", "jpeg", "bmp", "webp", "tiff", "tif"
+        "png", "jpg", "jpeg", "bmp", "webp", "tiff", "tif",
+        "heic", "heif", "avif", "jp2", "jxl"
     };
     return exts;
 }

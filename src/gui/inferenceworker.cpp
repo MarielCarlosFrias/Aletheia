@@ -32,6 +32,11 @@ void InferenceWorker::resetModel()
 
 void InferenceWorker::cancel()
 {
+    // Marca o pedido de cancelamento na cache partilhada: se o modelo
+    // ainda esta a carregar (sem instancia de BackgroundRemover),
+    // o worker verifica esta flag depois de o carregar e aborta antes
+    // de iniciar a inferencia.
+    cache_->cancelRequested.store(true);
     std::shared_ptr<BackgroundRemover> remover;
     {
         QMutexLocker lock(&cache_->mutex);
@@ -95,6 +100,9 @@ void InferenceWorker::start(const QImage& image,
     const QString errCancelled = TR("Inferência cancelada pelo usuário.",
                                     "Inference cancelled by user.");
 
+    // Limpa um eventual pedido de cancelamento anterior.
+    cache_->cancelRequested.store(false);
+
     watcher_.setFuture(QtConcurrent::run(
         [cache = cache_, img = image, options, modelPath, generation,
          errModel, errOnnx, errGeneric, errUnknown, errCancelled]()
@@ -110,6 +118,12 @@ void InferenceWorker::start(const QImage& image,
                                  ? errModel
                                  : errModel + QStringLiteral(": ") + modelError,
                              generation };
+                }
+                // Se o utilizador cancelou durante o carregamento do
+                // modelo, aborta antes de iniciar a inferencia.
+                if (cache->cancelRequested.exchange(false)) {
+                    remover->requestCancel();
+                    return { QImage(), errCancelled, generation };
                 }
                 return { ImagePostProcessor::apply(
                              remover->removeBackground(img), options),

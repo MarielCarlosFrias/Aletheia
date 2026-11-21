@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(aletheia VERSION 1.2.3)
+project(aletheia VERSION 1.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +18,8 @@ option(BG_REMOVER_BUNDLE_MODELS
     "Require and include bundled ONNX models in the install package" OFF)
 option(BG_REMOVER_WARNINGS
     "Enable common compiler warnings (recommended for development)" OFF)
+option(ALETHEIA_BUILD_TRANSLATIONS
+    "Compile .ts translation files to .qm with lrelease (Qt Linguist)" OFF)
 if(INSTALLED)
     add_definitions(-DINSTALLED)
 endif()
@@ -55,6 +57,18 @@ string(REPLACE ".tgz" "" ONNX_RUNTIME_DIR_NAME "${ONNX_RUNTIME_DIR_NAME}")
 set(BG_REMOVER_ONNX_RUNTIME_DIR
     "${CMAKE_SOURCE_DIR}/${ONNX_RUNTIME_DIR_NAME}" CACHE PATH
     "Path to an extracted ONNX Runtime distribution")
+# Ordem de procura do ONNX Runtime (build offline primeiro):
+#   1. vendor/onnxruntime/  — copia vendada no repositorio (build 100% offline)
+#   2. env ALETHEIA_ONNX_DIR — caminho externo (CI, cache local)
+#   3. cache BG_REMOVER_ONNX_RUNTIME_DIR / diretorio padrao na raiz do projeto
+#   4. download automatico (se BG_REMOVER_FETCH_ONNX_RUNTIME=ON)
+if(EXISTS "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include/onnxruntime_cxx_api.h")
+    set(BG_REMOVER_ONNX_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/vendor/onnxruntime")
+    message(STATUS "ONNX Runtime: a usar copia vendada em vendor/onnxruntime")
+elseif(DEFINED ENV{ALETHEIA_ONNX_DIR} AND NOT "$ENV{ALETHEIA_ONNX_DIR}" STREQUAL "")
+    set(BG_REMOVER_ONNX_RUNTIME_DIR "$ENV{ALETHEIA_ONNX_DIR}")
+    message(STATUS "ONNX Runtime: a usar ALETHEIA_ONNX_DIR=$ENV{ALETHEIA_ONNX_DIR}")
+endif()
 set(ONNX_DIR "${BG_REMOVER_ONNX_RUNTIME_DIR}")
 
 if(NOT EXISTS "${ONNX_DIR}/include/onnxruntime_cxx_api.h"
@@ -189,6 +203,10 @@ add_library(aletheia_gui STATIC
     src/gui/collapsiblesection.h
     src/gui/apptheme.cpp
     src/gui/apptheme.h
+    src/gui/updatechecker.cpp
+    src/gui/updatechecker.h
+    src/gui/optionspanel.cpp
+    src/gui/optionspanel.h
     src/core/modelmanager.cpp
     src/core/modelmanager.h)
 target_link_libraries(aletheia_gui PUBLIC
@@ -487,6 +505,40 @@ else()
     set(CPACK_DEBIAN_PACKAGE_DESCRIPTION
         "Removes backgrounds from images using neural network ONNX models and Chroma Key. GUI and CLI batch processing.")
     set(CPACK_STRIP_FILES ON)
+endif()
+
+# Traducoes: os .ts em translations/ sao gerados por scripts/extract_tr.py
+# a partir dos pares TR("pt","en") no codigo. Com ALETHEIA_BUILD_TRANSLATIONS=ON
+# o CMake compila os .qm com lrelease e instala-os junto ao executavel.
+if(ALETHEIA_BUILD_TRANSLATIONS)
+    find_package(Qt6 QUIET COMPONENTS LinguistTools)
+    if(Qt6LinguistTools_FOUND)
+        qt_add_translations(aletheia
+            TS_FILES
+                translations/aletheia_pt_BR.ts
+                translations/aletheia_en.ts
+            QM_FILES_OUTPUT_VARIABLE QM_FILES)
+        install(FILES ${QM_FILES} DESTINATION share/aletheia/translations OPTIONAL)
+    else()
+        message(WARNING
+            "ALETHEIA_BUILD_TRANSLATIONS=ON mas Qt6 LinguistTools nao "
+            "esta instalado; .qm nao serao gerados. Instale qt6-linguist-tools.")
+    endif()
+endif()
+
+# Em builds com AddressSanitizer, os testes que carregam o ONNX Runtime
+# falham no LeakSanitizer por leaks internos da propria libonnxruntime.so
+# (biblioteca de terceiros, nao nosso codigo). A supressao em asan.supp
+# filtra esses leaks; os leaks do nosso codigo continuam detetados.
+# Tem de ficar depois de todos os add_test().
+if(CMAKE_CXX_FLAGS MATCHES "sanitize=address" AND EXISTS "${CMAKE_SOURCE_DIR}/asan.supp")
+    set(ALETHEIA_ASAN_ENV
+        "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/asan.supp:exitcode=0")
+    set_tests_properties(postprocessing_test batchplan_test modelpath_test
+        modelvalidator_test savepath_test imageformats_test
+        gui_test_pt gui_test_en batchprocessor_test inference_test
+        visual_regression_test
+        PROPERTIES ENVIRONMENT "${ALETHEIA_ASAN_ENV}")
 endif()
 
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY

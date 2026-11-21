@@ -31,6 +31,9 @@ public:
     // 1024 na ISNet). Detetada automaticamente no construtor.
     int inputSize() const { return input_size_; }
 
+    // Execution provider ativo (CPU, CUDA, DML, CoreML).
+    QString provider() const { return provider_; }
+
     BackgroundRemover(const BackgroundRemover&) = delete;
     BackgroundRemover& operator=(const BackgroundRemover&) = delete;
 
@@ -50,6 +53,7 @@ private:
     Ort::Session session_;
     std::string input_name_;
     std::string output_name_;
+    QString provider_ = QStringLiteral("CPU");
 
     static constexpr int kDefaultInputSize = 320;
     // U2-Net/Silueta usam 320; ISNet usa 1024. Detetado a partir do

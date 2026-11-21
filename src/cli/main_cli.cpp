@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFile>
 #include <QStringList>
+#include <atomic>
+#include <csignal>
 #include <iostream>
 #include "batchprocessor.h"
 #include "i18n.h"
@@ -15,6 +17,15 @@ const QString kVersion = QStringLiteral(ALETHEIA_VERSION);
 #else
 const QString kVersion = QStringLiteral("1.0.0");
 #endif
+
+// Flag global de interrupcao: o handler de SIGINT/SIGTERM apenas marca
+// a flag (async-signal-safe); o BatchProcessor verifica-a entre imagens.
+std::atomic<bool> g_interrupted{false};
+
+void onSignal(int)
+{
+    g_interrupted.store(true);
+}
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -197,7 +208,13 @@ int main(int argc, char* argv[]) {
     }
     options.maxConcurrentImages = jobs;
 
+    // Ctrl+C interrompe o lote de forma limpa: as imagens ja processadas
+    // ficam guardadas e as restantes contam como nao processadas.
+    std::signal(SIGINT, onSignal);
+    std::signal(SIGTERM, onSignal);
+
     BatchProcessor processor(options);
+    processor.setCancelFlag(&g_interrupted);
     BatchProcessor::Result r = processor.processDirectory(
         inputDir, outputDir);
 
@@ -205,7 +222,10 @@ int main(int argc, char* argv[]) {
               << (r.fatal
                       ? I18n::tr("Lote interrompido: ",
                                  "Batch interrupted: ")
-                      : I18n::tr("Concluido: ", "Completed: "))
+                      : r.cancelled
+                          ? I18n::tr("Cancelado pelo utilizador: ",
+                                     "Cancelled by user: ")
+                          : I18n::tr("Concluido: ", "Completed: "))
                      .toStdString()
               << r.ok << "/" << r.total << " OK, "
               << r.errors << " "
@@ -218,5 +238,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Cancelamento pelo utilizador (Ctrl+C) sai com codigo 130 (convencao
+    // Unix para SIGINT); erros/fatal com 1; sucesso com 0.
+    if (r.cancelled) return 130;
     return (r.fatal || r.errors > 0) ? 1 : 0;
 }

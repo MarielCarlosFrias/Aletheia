@@ -1,0 +1,4 @@
+# Supressões do LeakSanitizer para leaks internos da libonnxruntime.so
+# (biblioteca de terceiros, não nosso código). Usado via LSAN_OPTIONS.
+# Testes sem ONNX (batchplan, postprocessing...) passam limpos sem isto.
+leak:libonnxruntime.so

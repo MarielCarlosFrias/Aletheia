@@ -51,24 +51,35 @@ GUI: utilizador carrega imagem (abre/arrasta/cola) -> escolhe modelo e opcoes ->
 
 ## Pontos fracos
 
-1. `src/core/backgroundremover.cpp` — suporte apenas a provider CPU (sem CUDA/DirectML/TensorRT).
-2. `src/gui/mainwindow.cpp` (2450 linhas) — classe muito grande e acoplada; o refactor em controllers foi abandonada.
-3. `src/core/i18n.h` — traducao manual (duas strings por chamada), dificil de estender para mais idiomat; nao usa .ts/.qm do Qt.
-4. `CMakeLists.txt` — build falha sem rede quando ONNX Runtime nao esta presente; dependencia externa baixada em tempo de build.
-5. `src/core/backgroundremover.cpp` — deteccao de logit vs probabilidade e por amostragem (nao ha metadados no modelo).
-6. `src/gui/mainwindow.cpp` — o cancelamento so tem efeito depois de o modelo estar carregado.
-7. `src/core/modelmanager.cpp` — os modelos sao descarregados de um repositorio de terceiros (o projeto nao publica releases proprias).
-8. `.github/workflows/release.yml` — os `SHA256SUMS` nao sao assinados (nem minisign/cosign) e o `linuxdeploy` so tem build "continuous" (verificado pelo `.zsync`, sem assinatura).
-9. `src/gui/mainwindow.cpp` — o refactor em controllers comecou (preview, inferencia e lote ja sairam), mas a janela principal ainda tem ~2000 linhas; o resto (inspector de opcoes, barra de estado) ainda esta dentro dela.
-10. `src/gui/mainwindow.cpp` — o post-processamento pesado ao **salvar** (contorno de sticker e sombra) continua na thread da interface e pode congelar a janela numa foto grande.
+1. ~~`src/core/backgroundremover.cpp` — suporte apenas a provider CPU~~ **Resolvido**: CUDA/DirectML/CoreML com fallback CPU (env `ALETHEIA_PROVIDER`).
+2. ~~`src/gui/mainwindow.cpp` grande~~ **Melhorado**: de 2060 para ~1915 linhas. Extraidos: `PreviewInspector`, `InferenceWorker`, `BatchTabController`, `UpdateChecker` e `OptionsPanel` (inspector com 3 seccoes). Restam os metodos de negocio (open/save/copy/lote) que estao acoplados ao estado da janela.
+3. ~~`src/core/i18n.h` — traducao manual sem .ts/.qm~~ **Melhorado**: 280 pares TR() extraidos para `translations/*.ts` via `scripts/extract_tr.py`; CMake compila .qm com `ALETHEIA_BUILD_TRANSLATIONS=ON` (requer qt6-linguist-tools). TR() inline continua como fonte primaria.
+4. ~~`CMakeLists.txt` — build falha sem rede~~ **Resolvido**: ordem de procura `vendor/onnxruntime/` → `ALETHEIA_ONNX_DIR` → cache/padrao → download automatico.
+5. ~~`src/core/backgroundremover.cpp` — deteccao logit/probabilidade por amostragem linear~~ **Melhorado**: amostragem espaçada (strided) por toda a máscara em vez dos primeiros N pixels.
+6. ~~Cancelamento durante carregamento do modelo~~ **Resolvido**: flag `cancelRequested` no `ModelCache`.
+7. `src/core/modelmanager.cpp` — modelos de terceiros (aceite pelo utilizador: a aba de download chega).
+8. `.github/workflows/release.yml` — `SHA256SUMS` nao assinados.
+9. ~~Pós-processamento na thread da UI~~ **Resolvido**: save/copy/drag-out/auto-crop assincronos (`saveWatcher_`, `postProcessWatcher_`, `autoCropWatcher_`); `detectCornerColor` robusta.
+10. ~~Formatos HEIC/AVIF sem aviso~~ **Resolvido**: `isFormatSupported()` + mensagem util na GUI e CLI; `batchplan.h` aceita as extensoes; testes em `test_imageformats.cpp`.
+11. ~~Warnings de compilacao~~ **Resolvido**: 0 warnings com `-Wall -Wextra -Wpedantic`.
+12. ~~ASAN/LSAN nos testes~~ **Resolvido**: leaks internos da `libonnxruntime.so` suprimidos via `asan.supp` + `LSAN_OPTIONS` no CTest; 11/11 passam em build ASAN. Nosso código está limpo (testes sem ONNX não têm leaks).
+13. ~~Preferências não persistidas~~ **Resolvido**: `restoreSettings`/`saveSettings` agora guardam método de remoção (IA/Cor), preset, sticker, sombra, modo/tamanho do pincel, tolerância/contíguo/pixel-art da cor e cor alvo.
+14. ~~Splitters não persistiam tamanho~~ **Resolvido**: `previewSplitter` e `contentSplitter` com `saveState`/`restoreState` via QSettings.
+15. ~~CLI sem tratamento de Ctrl+C~~ **Resolvido**: handler SIGINT/SIGTERM com flag atómica; `BatchProcessor::setCancelFlag()` para entre imagens; exit code 130; imagens já processadas ficam guardadas.
+16. ~~Atalhos documentados mas não implementados~~ **Resolvido**: `Ctrl+D` (remover fundo), `F1` (aba Ajuda), `Ctrl+C` (copiar) adicionados ao código.
+17. ~~Aba Ajuda incompleta~~ **Resolvido**: tabela de atalhos completa (7 linhas), FAQ com 5 perguntas, secção de formatos suportados, 4 exemplos CLI, rodapé com link Releases.
+18. ~~Sem menu Ficheiro / ficheiros recentes~~ **Resolvido**: menu Ficheiro (Abrir, Abrir recente max 10, Sair); título da janela mostra o ficheiro atual; aviso para imagens >50 MP; nome da imagem mostra tamanho do ficheiro.
+19. ~~Provider do modelo invisível na UI~~ **Resolvido**: log mostra "Modelo: CPU · 320×320" apos a primeira inferencia.
+20. ~~Lote sem resumo visual~~ **Resolvido**: diálogo de resumo no fim do lote (OK/erros).
+21. ~~Atalhos F1/Ctrl+D/Ctrl+C documentados mas não implementados~~ **Resolvido** + testados em test_gui.cpp.
 
 ## Ideias de melhoria
 
-1. Adicionar suporte a CUDA/DirectML via `OrtSessionOptions` em `src/core/backgroundremover.cpp`.
-2. Quebrar `MainWindow` em classes menores (aba de lote, inspector de opcoes, worker de inferencia) e adicionar testes de GUI.
-3. Substituir i18n manual por arquivos `.ts`/`.qm` do Qt Linguist.
-4. Empacotar/vendar ONNX Runtime para build offline; permitir caminho custom via variavel de ambiente.
-5. Criar a biblioteca `aletheia_core` partilhada para os alvos de teste.
+1. ~~CUDA/DirectML~~ **Feito**.
+2. ~~Extrair inspector de opcoes~~ **Feito** (`OptionsPanel`); `UpdateChecker` tambem extraido. MainWindow: 2060 → ~1915 linhas.
+3. ~~i18n .ts/.qm~~ **Infraestrutura feita** (`translations/` + `scripts/extract_tr.py` + CMake `ALETHEIA_BUILD_TRANSLATIONS`); migracao completa dos TR() para `tr()` fica pendente.
+4. ~~ONNX offline~~ **Feito** (`vendor/onnxruntime/` + `ALETHEIA_ONNX_DIR`).
+5. ~~`aletheia_core` partilhada~~ **Feito**.
 6. Fixar as actions do CI por SHA de commit e verificar o checksum do `linuxdeploy`.
-7. Publicar os modelos nas releases do proprio projeto, com SHA256 para todos.
-8. Suportar mais formatos de entrada (HEIC/AVIF).
+7. ~~Publicar modelos nas releases proprias~~ **Descartado** pelo utilizador.
+8. ~~HEIC/AVIF~~ **Feito** (detecao + mensagem util; leitura real depende do plugin Qt; `batchplan.h` aceita as extensoes).

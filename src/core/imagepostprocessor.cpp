@@ -3,6 +3,7 @@
 #include <QImageReader>
 #include <QImageWriter>
 #include <QPainter>
+#include <QFileInfo>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -112,6 +113,41 @@ QImage ImagePostProcessor::loadImageExif(const QString& path)
     QImageReader reader(path);
     reader.setAutoTransform(true);
     return reader.read();
+}
+
+QStringList ImagePostProcessor::pluginDependentExtensions()
+{
+    // Formatos que o Qt base nao le sem plugins de image formats.
+    return { QStringLiteral("heic"), QStringLiteral("heif"),
+             QStringLiteral("avif"), QStringLiteral("webp"),
+             QStringLiteral("jp2"),  QStringLiteral("jxl") };
+}
+
+bool ImagePostProcessor::isFormatSupported(const QString& path, QString* hint)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    const QList<QByteArray> supported = QImageReader::supportedImageFormats();
+    const QByteArray fmt = suffix.toLatin1();
+    if (supported.contains(fmt)) {
+        if (hint) hint->clear();
+        return true;
+    }
+    // O Qt deteta o formato pelo conteudo, nao so pela extensao: se o
+    // conteudo for suportado, mesmo com extensao rara, da true.
+    QImageReader probe(path);
+    if (probe.canRead()) {
+        if (hint) hint->clear();
+        return true;
+    }
+    if (hint) {
+        if (pluginDependentExtensions().contains(suffix)) {
+            *hint = QStringLiteral(
+                "formato .%1 requer plugin externo").arg(suffix);
+        } else {
+            *hint = QStringLiteral("formato .%1 nao suportado").arg(suffix);
+        }
+    }
+    return false;
 }
 
 QImage ImagePostProcessor::visualizeMask(const QImage& rgbaImage, bool overlay)
@@ -465,32 +501,91 @@ QColor ImagePostProcessor::detectCornerColor(const QImage& img)
     const int w = src.width();
     const int h = src.height();
 
-    const QList<QPoint> samplePoints = {
-        QPoint(0, 0),
-        QPoint(w - 1, 0),
-        QPoint(0, h - 1),
-        QPoint(w - 1, h - 1),
-        QPoint(std::min(1, w - 1), std::min(1, h - 1)),
-        QPoint(std::max(0, w - 2), std::min(1, h - 1)),
-        QPoint(std::min(1, w - 1), std::max(0, h - 2)),
-        QPoint(std::max(0, w - 2), std::max(0, h - 2))
+    // Amostra uma faixa de borda (borda de ~3px ou 2% da dimensao,
+    // no minimo 1px) em vez de apenas 8 pontos: muito mais robusta
+    // contra cantos com alpha, anti-aliasing ou sprites que tocam a borda.
+    const int margin = std::max(1, std::min(w, h) * 2 / 100);
+
+    // Conta frequencia de cores opacas (alpha >= 128) na faixa de borda.
+    // Cores sao quantizadas em passos de 8 (com arredondamento) para
+    // agrupar tons quase identicos sem perder a cor exata nos extremos.
+    auto quantize = [](int v) -> quint32 {
+        return static_cast<quint32>(std::min(255, (v + 4) / 8 * 8));
+    };
+    std::map<quint32, int> freq;
+    auto samplePixel = [&](int x, int y) {
+        if (x < 0 || x >= w || y < 0 || y >= h) return;
+        const QRgb px = src.pixel(x, y);
+        if (qAlpha(px) < 128) return; // ignora transparente
+        const quint32 key =
+            (quantize(qRed(px))   << 16) |
+            (quantize(qGreen(px)) << 8)  |
+             quantize(qBlue(px));
+        freq[key]++;
     };
 
-    std::map<QRgb, int> freq;
-    for (const QPoint& pt : samplePoints) {
-        const QRgb c = src.pixel(pt);
-        freq[c]++;
-    }
-
-    QRgb bestRgb = src.pixel(0, 0);
-    int bestCount = 0;
-    for (const auto& [rgb, count] : freq) {
-        if (count > bestCount) {
-            bestCount = count;
-            bestRgb = rgb;
+    // Borda superior e inferior
+    for (int x = 0; x < w; ++x) {
+        for (int d = 0; d < margin; ++d) {
+            samplePixel(x, d);
+            samplePixel(x, h - 1 - d);
         }
     }
-    return QColor(bestRgb);
+    // Borda esquerda e direita (sem repetir os cantos ja amostrados)
+    for (int y = margin; y < h - margin; ++y) {
+        for (int d = 0; d < margin; ++d) {
+            samplePixel(d, y);
+            samplePixel(w - 1 - d, y);
+        }
+    }
+
+    if (!freq.empty()) {
+        // Encontra a cor quantizada mais frequente
+        quint32 bestKey = 0;
+        int bestCount = 0;
+        for (const auto& [key, count] : freq) {
+            if (count > bestCount) {
+                bestCount = count;
+                bestKey = key;
+            }
+        }
+        return QColor((bestKey >> 16) & 0xFF,
+                      (bestKey >> 8) & 0xFF,
+                      bestKey & 0xFF);
+    }
+
+    // Fallback: se toda a borda e transparente, procura a cor opaca
+    // mais comum numa amostra da imagem inteira (grade de ~64x64).
+    std::map<quint32, int> globalFreq;
+    const int stepX = std::max(1, w / 64);
+    const int stepY = std::max(1, h / 64);
+    for (int y = 0; y < h; y += stepY) {
+        for (int x = 0; x < w; x += stepX) {
+            const QRgb px = src.pixel(x, y);
+            if (qAlpha(px) < 128) continue;
+            const quint32 key =
+                (quantize(qRed(px))   << 16) |
+                (quantize(qGreen(px)) << 8)  |
+                 quantize(qBlue(px));
+            globalFreq[key]++;
+        }
+    }
+    if (!globalFreq.empty()) {
+        quint32 bestKey = 0;
+        int bestCount = 0;
+        for (const auto& [key, count] : globalFreq) {
+            if (count > bestCount) {
+                bestCount = count;
+                bestKey = key;
+            }
+        }
+        return QColor((bestKey >> 16) & 0xFF,
+                      (bestKey >> 8) & 0xFF,
+                      bestKey & 0xFF);
+    }
+
+    // Nenhum pixel opaco: devolve magenta (fallback padrao chroma key)
+    return Qt::magenta;
 }
 
 QImage ImagePostProcessor::removeByColor(const QImage& input,
