@@ -22,6 +22,13 @@ onnxruntime-linux-x64-*/
 onnxruntime-win-x64-*/
 onnxruntime-osx-*/
 
+# Excecao: o ONNX Runtime vendored em vendor/ e parte do repositorio
+# (o release do GitHub foi removido; o build usa esta copia).
+!/vendor/
+!/vendor/onnxruntime/
+!/vendor/onnxruntime/**
+!vendor/onnxruntime/lib/*.so*
+
 # macOS: Qt instalado por aqtinstall, venv e ZIP de release
 /Qt/
 /.venv/

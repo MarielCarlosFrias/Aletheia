@@ -26,16 +26,13 @@ jobs:
           # devolveu HTTP/2 PROTOCOL_ERROR neste projeto. Descarregamos
           # aqui, com retry, para o caminho default que o CMakeLists ja
           # procura (evita a descarga interna do CMake).
-          curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
-            -o /tmp/ort.tgz \
-            https://github.com/microsoft/onnxruntime/releases/download/v1.19.0/onnxruntime-linux-x64-1.19.0.tgz
-          echo '8627cae49b51544ed15bb70c8ecf25b187f22a301c99c1ced5f4f3af5c36b44c  /tmp/ort.tgz' | sha256sum --check
-          tar -xzf /tmp/ort.tgz
+          # ONNX Runtime vem do vendor/ (headers) + npm (binario da plataforma).
+          bash scripts/fetch-onnxruntime.sh
           curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
             -o u2netp.onnx \
             https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
           echo '309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8  u2netp.onnx' | sha256sum --check
-      - run: cmake -S . -B build -G Ninja -DINSTALLED=ON -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON -DBG_REMOVER_BUNDLE_MODELS=ON
+      - run: cmake -S . -B build -G Ninja -DINSTALLED=ON -DBG_REMOVER_BUNDLE_MODELS=ON
       - run: cmake --build build --parallel
       - name: Test
         # Testar antes de empacotar: um binario que falha nos testes
@@ -76,11 +73,8 @@ jobs:
           # devolveu HTTP/2 PROTOCOL_ERROR neste projeto. Descarregamos
           # aqui, com retry, para o caminho default que o CMakeLists ja
           # procura (evita a descarga interna do CMake).
-          curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
-            -o /tmp/ort.tgz \
-            https://github.com/microsoft/onnxruntime/releases/download/v1.19.0/onnxruntime-linux-x64-1.19.0.tgz
-          echo '8627cae49b51544ed15bb70c8ecf25b187f22a301c99c1ced5f4f3af5c36b44c  /tmp/ort.tgz' | sha256sum --check
-          tar -xzf /tmp/ort.tgz
+          # ONNX Runtime vem do vendor/ (headers) + npm (binario da plataforma).
+          bash scripts/fetch-onnxruntime.sh
           curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
             -o u2netp.onnx \
             https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
@@ -89,7 +83,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DINSTALLED=ON \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON \
+            \
             -DBG_REMOVER_BUNDLE_MODELS=ON
           cmake --build build --parallel
       - name: Test
@@ -171,12 +165,17 @@ jobs:
           $qtDir = "$PWD\Qt\6.7.3\msvc2019_64"
           Add-Content $env:GITHUB_PATH "$qtDir\bin"
           "CMAKE_PREFIX_PATH=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Download bundled model
-        shell: pwsh
+      - name: Prepare ONNX Runtime (npm) and model
+        shell: bash
         run: |
-          Invoke-WebRequest https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx -OutFile u2netp.onnx
-          if ((Get-FileHash u2netp.onnx -Algorithm SHA256).Hash.ToLower() -ne '309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8') { throw 'Checksum do modelo invalido' }
-      - run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DINSTALLED=ON -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON -DBG_REMOVER_BUNDLE_MODELS=ON
+          # Headers de vendor/; DLL do Windows via pacote npm onnxruntime-node
+          # (os releases do GitHub foram removidos).
+          bash scripts/fetch-onnxruntime.sh
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+            -o u2netp.onnx \
+            https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
+          echo '309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8  u2netp.onnx' | sha256sum --check
+      - run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DINSTALLED=ON -DBG_REMOVER_BUNDLE_MODELS=ON
       - run: cmake --build build --config Release --parallel
       - name: Test
         shell: pwsh
@@ -219,11 +218,9 @@ jobs:
           echo "$QT_DIR/bin" >> "$GITHUB_PATH"
       - name: Prepare ONNX Runtime and model
         run: |
-          curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
-            -o /tmp/ort.tgz \
-            https://github.com/microsoft/onnxruntime/releases/download/v1.19.0/onnxruntime-osx-universal2-1.19.0.tgz
-          echo 'a40293ad13c166289a83b072421faa7883b5ae4694ad93d6445ac32bd08be6ab  /tmp/ort.tgz' | shasum -a 256 -c -
-          tar -xzf /tmp/ort.tgz
+          # ONNX Runtime: headers de vendor/, binario da plataforma via npm
+          # (os releases do GitHub foram removidos).
+          bash scripts/fetch-onnxruntime.sh
           curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
             -o u2netp.onnx \
             https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
@@ -231,7 +228,7 @@ jobs:
       - name: Configure and build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-            -DINSTALLED=ON -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON \
+            -DINSTALLED=ON \
             -DBG_REMOVER_BUNDLE_MODELS=ON \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_INSTALL_PREFIX="$PWD/dist"
