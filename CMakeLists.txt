@@ -117,39 +117,32 @@ if(WIN32)
     set(ONNX_RUNTIME_LIBRARY "${ONNX_DIR}/lib/onnxruntime.dll")
     set(ONNX_RUNTIME_PROVIDER_LIBRARY
         "${ONNX_DIR}/lib/onnxruntime_providers_shared.dll")
-    # A import library (onnxruntime.lib) so existe nos releases oficiais;
-    # o pacote npm onnxruntime-node traz apenas a DLL. Sem .lib valida, o
-    # MSVC liga diretamente contra a DLL (o link.exe le a tabela de
-    # exports da propria DLL). Um ficheiro .lib que comeca por "MZ" e um
-    # PE (DLL copiada para .lib), nao uma archive COFF "!<arch>": tem de
-    # ser ignorado, senao o link falha com LNK1107 "invalid or corrupt
-    # file: cannot read at ...".
+    # No Windows a import library (onnxruntime.lib) e OBRIGATORIA: sem
+    # IMPORTED_IMPLIB valida o gerador do Visual Studio nao coloca a DLL
+    # na linha de link e o build falha com LNK2019/LNK1120
+    # (unresolved external OrtGetApiBase). Um ficheiro .lib que comeca por
+    # "MZ" e um PE (DLL copiada para .lib), nao uma archive COFF
+    # "!<arch>" — nesse caso o link falharia com LNK1107 "invalid or
+    # corrupt file". A .lib oficial vem do pacote NuGet
+    # Microsoft.ML.OnnxRuntime via scripts/fetch-onnxruntime.sh.
     set(ONNX_RUNTIME_IMPLIB "${ONNX_DIR}/lib/onnxruntime.lib")
     if(EXISTS "${ONNX_RUNTIME_IMPLIB}")
         file(READ "${ONNX_RUNTIME_IMPLIB}" ONNX_IMPLIB_SIG LIMIT 8 HEX)
         if(NOT ONNX_IMPLIB_SIG MATCHES "^(213c617263683e0a|213C617263683E0A)")
-            message(STATUS
-                "onnxruntime.lib nao e uma archive COFF valida "
-                "(assinatura '${ONNX_IMPLIB_SIG}'); a ligar direto contra "
-                "onnxruntime.dll")
             set(ONNX_RUNTIME_IMPLIB "")
         endif()
-    else()
-        set(ONNX_RUNTIME_IMPLIB "")
     endif()
-    if(ONNX_RUNTIME_IMPLIB)
-        set_target_properties(onnxruntime PROPERTIES
-            IMPORTED_LOCATION "${ONNX_RUNTIME_LIBRARY}"
-            IMPORTED_IMPLIB "${ONNX_RUNTIME_IMPLIB}"
-        )
-    else()
-        message(STATUS
-            "Sem import library valida: link direto contra "
-            "${ONNX_RUNTIME_LIBRARY} (link.exe le os exports da DLL)")
-        set_target_properties(onnxruntime PROPERTIES
-            IMPORTED_LOCATION "${ONNX_RUNTIME_LIBRARY}"
-        )
+    if(NOT ONNX_RUNTIME_IMPLIB)
+        message(FATAL_ERROR
+            "onnxruntime.lib ausente ou invalida em ${ONNX_DIR}/lib "
+            "(assinatura COFF '!<arch>' esperada). No Windows a import "
+            "library e obrigatoria. Corra scripts/fetch-onnxruntime.sh, "
+            "que a extrai do pacote NuGet Microsoft.ML.OnnxRuntime.")
     endif()
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${ONNX_RUNTIME_LIBRARY}"
+        IMPORTED_IMPLIB "${ONNX_RUNTIME_IMPLIB}"
+    )
 elseif(APPLE)
     set(ONNX_RUNTIME_LIBRARY "${ONNX_DIR}/lib/libonnxruntime.dylib")
     set(ONNX_RUNTIME_DYLIB

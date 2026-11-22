@@ -89,70 +89,48 @@ case "$NPM_OS" in
         ln -sf "libonnxruntime.$VERSION.dylib" libonnxruntime.dylib 2>/dev/null || true
         ;;
     win32)
-        cp "$NAPI_DIR/onnxruntime.dll" "$VENDOR/lib/"
         cp "$NAPI_DIR/DirectML.dll" "$VENDOR/lib/" 2>/dev/null || true
-        # Opcional: so existe nos releases oficiais; o pacote npm nao a
-        # traz (os providers CPU/DML vao dentro do proprio onnxruntime.dll).
-        cp "$NAPI_DIR/onnxruntime_providers_shared.dll" "$VENDOR/lib/" 2>/dev/null || true
-        # O CMake procura onnxruntime.lib (import library) no Windows; o npm
-        # so traz a DLL. Gera a import lib com lib.exe a partir dos exports
-        # da DLL. As ferramentas MSVC nao estao no PATH da shell bash do CI:
-        # localizam-se nos caminhos padrao do Visual Studio (runners GitHub
-        # windows-2022 included).
-        for d in \
-            "/c/Program Files/Microsoft Visual Studio"/2022/*/VC/Tools/MSVC/*/bin/Hostx64/x64 \
-            "/c/Program Files (x86)/Microsoft Visual Studio"/2022/*/VC/Tools/MSVC/*/bin/Hostx64/x64 \
-            "/c/Program Files/Microsoft Visual Studio"/2019/*/VC/Tools/MSVC/*/bin/Hostx64/x64 \
-            "/c/Program Files (x86)/Microsoft Visual Studio"/2019/*/VC/Tools/MSVC/*/bin/Hostx64/x64
-        do
-            if [ -x "$d/lib.exe" ] && [ -x "$d/dumpbin.exe" ]; then
-                export PATH="$d:$PATH"
-                break
-            fi
-        done
-        rm -f "$VENDOR/lib/onnxruntime.lib"
-        if command -v dumpbin.exe >/dev/null 2>&1 && command -v lib.exe >/dev/null 2>&1; then
-            # No Git Bash, ao chamar um .exe nativo, argumentos que comecam
-            # por "/" (como /exports, /def:..., /machine:...) sao convertidos
-            # em caminhos Windows (ex.: D:\exports) e o dumpbin/lib falham.
-            # Solucao: desativar a conversao de paths NESTAS chamadas
-            # (MSYS_NO_PATHCONV) e passar caminhos Windows via cygpath -w.
-            to_win() {
-                if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"
-                else printf '%s' "$1"; fi
-            }
-            DLL_WIN="$(to_win "$VENDOR/lib/onnxruntime.dll")"
-            OUT_WIN="$(to_win "$VENDOR/lib/onnxruntime.lib")"
-            DEF_WIN="$(to_win "$TMP/onnxruntime_full.def")"
-            # dumpbin /exports (VS 2019/2022) imprime linhas como
-            #     1    0 00001234 OrtGetApiBase
-            # O nome exportado e a ultima coluna; so nomes C validos entram
-            # no .def (forwarders "DLL.Func" sao excluidos pela regex).
-            # O "|| true" e essencial: com "set -o pipefail", um dumpbin.exe
-            # que falhe abortaria o script (set -e) e o passo inteiro do CI.
-            # A import lib e OPCIONAL — sem ela o CMake liga direto contra
-            # a DLL (IMPORTED_LOCATION), por isso aqui nunca se pode falhar.
-            MSYS_NO_PATHCONV=1 dumpbin.exe /exports "$DLL_WIN" \
-                | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $NF ~ /^[A-Za-z_][A-Za-z0-9_]*$/ { print "    " $NF }' \
-                > "$TMP/onnxruntime.def" || true
-            if [ -s "$TMP/onnxruntime.def" ]; then
-                { echo "LIBRARY onnxruntime.dll"; cat "$TMP/onnxruntime.def"; } \
-                    > "$TMP/onnxruntime_full.def"
-                if MSYS_NO_PATHCONV=1 lib.exe /def:"$DEF_WIN" \
-                        /out:"$OUT_WIN" /machine:x64; then
-                    echo "Import lib gerada com lib.exe: $VENDOR/lib/onnxruntime.lib"
-                else
-                    echo "AVISO: lib.exe falhou; sem import lib o CMake liga direto contra a DLL" >&2
-                    rm -f "$VENDOR/lib/onnxruntime.lib"
-                fi
-            else
-                echo "AVISO: dumpbin nao devolveu exports; o CMake liga direto contra a DLL" >&2
-            fi
-        else
-            echo "AVISO: dumpbin.exe/lib.exe nao encontrados; o CMake liga direto contra onnxruntime.dll" >&2
+        # No Windows o CMake precisa da import library onnxruntime.lib; sem
+        # ela o link falha com LNK2019/LNK1120 (OrtGetApiBase). O pacote npm
+        # traz apenas a DLL, por isso a DLL e a .lib vao do pacote NuGet
+        # oficial Microsoft.ML.OnnxRuntime (nuget.org), garantindo um par
+        # .dll/.lib do mesmo build. (Gerar a .lib com dumpbin.exe/lib.exe nao
+        # e fiavel no Git Bash do runner: o MSYS converte "/exports" num
+        # caminho Windows e a sintese falha.)
+        NUPKG="$TMP/ort.nupkg"
+        curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+            -o "$NUPKG" \
+            "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/$VERSION"
+        PYBIN="$(command -v python || command -v python3)"
+        NUPKG="$NUPKG" DEST="$VENDOR/lib" "$PYBIN" - <<'PY'
+import os, zipfile
+z = zipfile.ZipFile(os.environ["NUPKG"])
+dest = os.environ["DEST"]
+want = {
+    "runtimes/win-x64/native/onnxruntime.dll": "onnxruntime.dll",
+    "runtimes/win-x64/native/onnxruntime.lib": "onnxruntime.lib",
+    "runtimes/win-x64/native/onnxruntime_providers_shared.dll":
+        "onnxruntime_providers_shared.dll",
+    "runtimes/win-x64/native/onnxruntime_providers_shared.lib":
+        "onnxruntime_providers_shared.lib",
+}
+for member, out in want.items():
+    try:
+        data = z.read(member)
+    except KeyError:
+        continue
+    with open(os.path.join(dest, out), "wb") as f:
+        f.write(data)
+    print("extraido do NuGet:", member, "->", out)
+PY
+        # Valida a assinatura COFF ("!<arch>"); se nao for valida, falha
+        # ja aqui com mensagem clara em vez de LNK1107/LNK2019 no build.
+        sig="$(head -c 8 "$VENDOR/lib/onnxruntime.lib" | od -An -tx1 | tr -d ' \n')"
+        if [ "$sig" != "213c617263683e0a" ]; then
+            echo "ERRO: onnxruntime.lib ausente ou invalido (assinatura '$sig')" >&2
+            exit 1
         fi
-        # NUNCA copiar a DLL como .lib: o link.exe trata um PE como archive
-        # COFF e falha com LNK1107 "invalid or corrupt file".
+        echo "ONNX Runtime (DLL + import lib oficiais do NuGet) em $VENDOR/lib"
         ;;
 esac
 
