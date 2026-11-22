@@ -112,6 +112,18 @@ case "$NPM_OS" in
         done
         rm -f "$VENDOR/lib/onnxruntime.lib"
         if command -v dumpbin.exe >/dev/null 2>&1 && command -v lib.exe >/dev/null 2>&1; then
+            # No Git Bash, ao chamar um .exe nativo, argumentos que comecam
+            # por "/" (como /exports, /def:..., /machine:...) sao convertidos
+            # em caminhos Windows (ex.: D:\exports) e o dumpbin/lib falham.
+            # Solucao: desativar a conversao de paths NESTAS chamadas
+            # (MSYS_NO_PATHCONV) e passar caminhos Windows via cygpath -w.
+            to_win() {
+                if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"
+                else printf '%s' "$1"; fi
+            }
+            DLL_WIN="$(to_win "$VENDOR/lib/onnxruntime.dll")"
+            OUT_WIN="$(to_win "$VENDOR/lib/onnxruntime.lib")"
+            DEF_WIN="$(to_win "$TMP/onnxruntime_full.def")"
             # dumpbin /exports (VS 2019/2022) imprime linhas como
             #     1    0 00001234 OrtGetApiBase
             # O nome exportado e a ultima coluna; so nomes C validos entram
@@ -120,14 +132,14 @@ case "$NPM_OS" in
             # que falhe abortaria o script (set -e) e o passo inteiro do CI.
             # A import lib e OPCIONAL — sem ela o CMake liga direto contra
             # a DLL (IMPORTED_LOCATION), por isso aqui nunca se pode falhar.
-            dumpbin.exe /exports "$VENDOR/lib/onnxruntime.dll" \
+            MSYS_NO_PATHCONV=1 dumpbin.exe /exports "$DLL_WIN" \
                 | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $NF ~ /^[A-Za-z_][A-Za-z0-9_]*$/ { print "    " $NF }' \
                 > "$TMP/onnxruntime.def" || true
             if [ -s "$TMP/onnxruntime.def" ]; then
                 { echo "LIBRARY onnxruntime.dll"; cat "$TMP/onnxruntime.def"; } \
                     > "$TMP/onnxruntime_full.def"
-                if lib.exe /def:"$TMP/onnxruntime_full.def" \
-                        /out:"$VENDOR/lib/onnxruntime.lib" /machine:x64; then
+                if MSYS_NO_PATHCONV=1 lib.exe /def:"$DEF_WIN" \
+                        /out:"$OUT_WIN" /machine:x64; then
                     echo "Import lib gerada com lib.exe: $VENDOR/lib/onnxruntime.lib"
                 else
                     echo "AVISO: lib.exe falhou; sem import lib o CMake liga direto contra a DLL" >&2
