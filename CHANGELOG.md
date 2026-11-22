@@ -4,6 +4,25 @@ Todas as alterações relevantes são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.3.1] - 2026-11-22
+
+### Corrigido
+
+- **CI no Windows (job `windows`)**: falhava no link com `LNK1107` /
+  `LNK2019` (`unresolved external OrtGetApiBase`) porque
+  `scripts/fetch-onnxruntime.sh` copiava a `onnxruntime.dll` como
+  `onnxruntime.lib` e a síntesis da import lib com `dumpbin.exe`/`lib.exe`
+  nao e fiavel no Git Bash do runner (o MSYS converte `/exports` num
+  caminho Windows). A DLL e a import library passam agora a vir do pacote
+  NuGet oficial `Microsoft.ML.OnnxRuntime`, com validacao da assinatura
+  COFF da `.lib` no script e no CMake.
+- **CI**: o passo "Prepare ONNX Runtime" ja nao aborta com `pipefail`
+  quando as ferramentas MSVC falham; os binarios Windows gerados no CI
+  nao sao commitados (`.gitignore`).
+- **CI**: ONNX Runtime por plataforma (vendor/npm/NuGet) e testes GUI
+  headless (`QT_QPA_PLATFORM=offscreen`) — jobs linux, macOS e Windows
+  todos verdes.
+
 ## [1.3.0] - 2026-11-21
 
 ### Adicionado
