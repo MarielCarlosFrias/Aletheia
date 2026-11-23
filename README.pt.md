@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/Language-English-blue.svg)](README.md)
 [![Português](https://img.shields.io/badge/Idioma-Portugu%C3%AAs-green.svg)](README.pt.md)
 [![CI](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/ci.yml/badge.svg)](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/ci.yml)
-[![Release](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml/badge.svg)](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml)
+[![Release](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml/badge.svg?branch=v1.3.1)](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml?query=branch%3Av1.3.1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Qt 6](https://img.shields.io/badge/Qt-6-41cd52.svg)](https://www.qt.io/)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](#download-pronto-sem-compilar)
