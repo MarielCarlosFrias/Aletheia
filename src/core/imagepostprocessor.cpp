@@ -346,9 +346,9 @@ bool injectPngExif(const QString& outputPath, const QByteArray& sourceTiff,
 
 } // namespace
 
-QImage ImagePostProcessor::apply(const QImage& input,
-                                 const ProcessingOptions& options,
-                                 const QImage& originalImage)
+QImage ImagePostProcessor::applyMaskEffects(const QImage& input,
+                                            const ProcessingOptions& options,
+                                            const QImage& originalImage)
 {
     QImage result = input;
     if (options.cleanNoise) {
@@ -376,10 +376,18 @@ QImage ImagePostProcessor::apply(const QImage& input,
         result = compositeBackground(result, options.backgroundColor);
     }
 
-    // Geometria de saida por ultimo: recorte, rotacao e tamanho final
-    // aplicam-se a imagem ja composta (sombra/contorno/fundo incluidos).
-    result = applyGeometry(result, options);
+    return result;
+}
 
+QImage ImagePostProcessor::apply(const QImage& input,
+                                 const ProcessingOptions& options,
+                                 const QImage& originalImage)
+{
+    // Efeitos de máscara (limiar, refinamento, sticker, sombra, fundo)
+    // aplicados primeiro; a geometria (recorte/rotação/redimensionamento)
+    // fica para a exportação, para não ser aplicada duas vezes no preview.
+    QImage result = applyMaskEffects(input, options, originalImage);
+    result = applyGeometry(result, options);
     return result;
 }
 

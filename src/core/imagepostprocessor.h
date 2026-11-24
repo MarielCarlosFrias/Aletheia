@@ -11,6 +11,14 @@ public:
                         const ProcessingOptions& options,
                         const QImage& originalImage = QImage());
 
+    // Efeitos de máscara (sem geometria): limiar alfa, refinamento de
+    // bordas, composição de fundo, contorno de sticker e sombra. Usado
+    // para o preview da inferência; a geometria é aplicada só na
+    // exportação para evitar ser aplicada duas vezes.
+    static QImage applyMaskEffects(const QImage& input,
+                                   const ProcessingOptions& options,
+                                   const QImage& originalImage = QImage());
+
     // Geometria de saída (recorte/rotação/redimensionamento) definida em
     // ProcessingOptions. Chamada automaticamente no fim de apply() e
     // exposta para reutilização (preview, testes, CLI).
