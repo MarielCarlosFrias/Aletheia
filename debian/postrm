@@ -1,0 +1,12 @@
+#!/bin/sh
+# Após remover o pacote, atualizar a cache do linker para que
+# /usr/lib/aletheia/libonnxruntime.so* deixe de aparecer.
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    ldconfig
+fi
+
+#DEBHELPER#
+
+exit 0

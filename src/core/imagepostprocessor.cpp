@@ -372,7 +372,7 @@ QImage ImagePostProcessor::applyMaskEffects(const QImage& input,
         if (!bgImg.isNull()) {
             result = compositeBackgroundImage(result, bgImg);
         }
-    } else if (options.backgroundStyle == ProcessingOptions::BgSolidColor || options.backgroundColor.isValid()) {
+    } else if (options.backgroundStyle == ProcessingOptions::BgSolidColor) {
         result = compositeBackground(result, options.backgroundColor);
     }
 
@@ -690,29 +690,38 @@ QImage ImagePostProcessor::applyStickerOutline(const QImage& input, int width,
         }
     }
 
-    // 2. Dilatação morfológica com kernel circular
-    std::vector<uint8_t> dilated = mask;
-    std::vector<std::pair<int, int>> offsets;
-    const int r2 = r * r;
-    for (int dy = -r; dy <= r; ++dy) {
-        for (int dx = -r; dx <= r; ++dx) {
-            if (dx * dx + dy * dy <= r2) {
-                offsets.emplace_back(dx, dy);
+    // 2. Dilatação morfológica separável (horizontal + vertical):
+    // custo O(w·h·r) em vez de O(w·h·r²) do kernel circular 2-D.
+    // Aproxima o disco com um quadrado de lado 2r+1 — visualmente
+    // equivalente para espessuras de contorno.
+    std::vector<uint8_t> dilated(mask.size(), 0);
+    std::vector<uint8_t> tmp(mask.size(), 0);
+    // Passagem horizontal.
+    for (int y = 0; y < h; ++y) {
+        const size_t rowStart = static_cast<size_t>(y) * static_cast<size_t>(w);
+        for (int x = 0; x < w; ++x) {
+            bool any = false;
+            for (int dx = -r; dx <= r && !any; ++dx) {
+                const int nx = x + dx;
+                if (nx >= 0 && nx < w && mask[rowStart + static_cast<size_t>(nx)] > 0)
+                    any = true;
             }
+            tmp[rowStart + static_cast<size_t>(x)] = any ? 255 : 0;
         }
     }
-
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            if (mask[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] == 255) {
-                for (const auto& [dx, dy] : offsets) {
-                    const int nx = x + dx;
-                    const int ny = y + dy;
-                    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-                        dilated[static_cast<size_t>(ny) * static_cast<size_t>(w) + static_cast<size_t>(nx)] = 255;
-                    }
-                }
+    // Passagem vertical.
+    for (int x = 0; x < w; ++x) {
+        for (int y = 0; y < h; ++y) {
+            bool any = false;
+            for (int dy = -r; dy <= r && !any; ++dy) {
+                const int ny = y + dy;
+                if (ny >= 0 && ny < h
+                    && tmp[static_cast<size_t>(ny) * static_cast<size_t>(w)
+                           + static_cast<size_t>(x)] > 0)
+                    any = true;
             }
+            dilated[static_cast<size_t>(y) * static_cast<size_t>(w)
+                    + static_cast<size_t>(x)] = any ? 255 : 0;
         }
     }
 
@@ -1315,7 +1324,14 @@ bool ImagePostProcessor::saveImage(const QImage& image,
         out = out.convertedToColorSpace(QColorSpace::SRgb);
     }
 
-    QImageWriter writer(outputPath, format.toUtf8());
+    // Escrita atomica: QSaveFile cria um temporario na mesma diretoria
+    // e o commit() faz rename atomico para outputPath. Um crash a meio
+    // nao deixa o ficheiro de saida truncado/corrompido.
+    QSaveFile tmpFile(outputPath);
+    if (!tmpFile.open(QIODevice::WriteOnly))
+        return fail(QStringLiteral("could not open file for writing: ") + outputPath);
+
+    QImageWriter writer(&tmpFile, format.toUtf8());
     if (format == QLatin1String("png")) {
         if (options.pngCompression >= 0) {
             writer.setCompression(std::clamp(options.pngCompression, 0, 9));
@@ -1336,8 +1352,14 @@ bool ImagePostProcessor::saveImage(const QImage& image,
         }
     }
 
-    if (!writer.write(out)) return fail(writer.errorString());
+    if (!writer.write(out)) {
+        tmpFile.cancelWriting();
+        return fail(writer.errorString());
+    }
+    if (!tmpFile.commit())
+        return fail(QStringLiteral("could not finalize file: ") + tmpFile.errorString());
 
+    // EXIF binario e injetado no ficheiro final (ja commited).
     if (options.preserveMetadata && !sourceTiff.isEmpty()) {
         bool metadataWritten = true;
         if (format == QLatin1String("jpeg")) {
@@ -1348,8 +1370,11 @@ bool ImagePostProcessor::saveImage(const QImage& image,
                 outputPath, sourceTiff, out.width(), out.height());
         }
         if (!metadataWritten) {
-            return fail(QStringLiteral(
-                "the image was written, but EXIF metadata could not be preserved"));
+            // O ficheiro de imagem existe e e valido; a falha de
+            // metadados e apenas um aviso, nao um erro de escrita.
+            if (error) *error = QStringLiteral(
+                "image written, but EXIF metadata could not be preserved");
+            return true;
         }
     }
     return true;

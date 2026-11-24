@@ -553,7 +553,7 @@ else()
     # ldconfig: sem ele o /usr/lib/aletheia/libonnxruntime.so* nao fica
     # no cache do sistema.
     set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-        "${CMAKE_SOURCE_DIR}/debian/postinst")
+        "${CMAKE_SOURCE_DIR}/debian/postinst;${CMAKE_SOURCE_DIR}/debian/postrm")
     # Uma unica string: varios argumentos viram uma lista CMake e o
     # CPack junta-os com ';' na descricao do pacote.
     set(CPACK_DEBIAN_PACKAGE_DESCRIPTION

@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/Language-English-blue.svg)](README.md)
 [![Português](https://img.shields.io/badge/Idioma-Portugu%C3%AAs-green.svg)](README.pt.md)
 [![CI](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/ci.yml/badge.svg)](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/ci.yml)
-[![Release](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml/badge.svg?branch=v1.3.1)](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml?query=branch%3Av1.3.1)
+[![Release](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml/badge.svg?branch=v1.4.0)](https://github.com/MarielCarlosFrias/aletheia/actions/workflows/release.yml?query=branch%3Av1.4.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Qt 6](https://img.shields.io/badge/Qt-6-41cd52.svg)](https://www.qt.io/)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](#download-pronto-sem-compilar)
@@ -41,7 +41,7 @@ Sem envio de fotos para a nuvem, sem assinaturas ou APIs pagas, sem necessidade 
 
 Binários prontos para uso são gerados e testados automaticamente em cada versão:
 
-👉 [**Baixar a Versão Mais Recente (v1.3.1)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
+👉 [**Baixar a Versão Mais Recente (v1.4.0)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
 
 | Plataforma | Pacote | Descrição |
 | :--- | :--- | :--- |
@@ -128,6 +128,19 @@ The app is available in **Brazilian Portuguese**, **English** and **Spanish**. T
 Novos idiomas podem ser adicionados editando os dicionários JSON em `translations/aletheia_<código>.json` (veja `translations/README.md`).
 
 New languages can be added by editing JSON dictionaries in `translations/aletheia_<code>.json` (see `translations/README.md`).
+
+## 🔧 Variáveis de Ambiente
+
+| Variável | Valores | Descrição |
+|---|---|---|
+| `ALETHEIA_LANG` | `pt`, `en`, `es` | Idioma da interface |
+| `ALETHEIA_PROVIDER` | `auto`, `cpu`, `cuda`, `dml`, `coreml` | Provider de execução ONNX (GPU se disponível) |
+| `ALETHEIA_THEME` | `dark`, `light` | Tema da GUI |
+| `ALETHEIA_NO_UPDATE_CHECK` | qualquer | Desativa verificação de atualizações (GUI) |
+| `ALETHEIA_ONNX_DIR` | caminho | Diretório personalizado do ONNX Runtime (build) |
+| `BG_REMOVER_LANG` / `BG_REMOVER_THEME` | (legacy) | Aliases antigos, ainda funcionam |
+
+Veja [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) para problemas comuns e [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para o pipeline interno.
 
 ---
 

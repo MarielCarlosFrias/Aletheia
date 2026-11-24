@@ -4,6 +4,48 @@ Todas as alterações relevantes são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.4.0] - 2026-11-24
+
+### Adicionado
+
+- **Internacionalização ES**: dicionário JSON embutido (`translations/aletheia_es.json`),
+  seletor de idioma PT/EN/ES na GUI, variável `ALETHEIA_LANG` e persistência em QSettings.
+- **Efeitos configuráveis**: sticker (cor + espessura), sombra projetada (blur, offset X/Y,
+  opacidade), refinamento de bordas com intensidade ajustável.
+- **Qualidade de exportação**: qualidade JPEG/WebP (1-100), compressão PNG (0-9),
+  preservação de metadados EXIF/ICC com injeção no contentor de saída.
+- **Geometria de saída**: recorte normalizado (`--crop x,y,w,h`), rotação 0/90/180/270,
+  redimensionamento (`--resize WxH`).
+- **Chroma key avançado**: despill (descontaminação de cor nas bordas), feather (suavização
+  da máscara), modo contíguo (varinha) e preservação de pixel art.
+- **CLI completa**: suporte a ficheiro isolado, `--chroma-key`, `--despill`, `--feather`,
+  `--sticker*`, `--shadow*`, `--background`, `--no-metadata`, `--quality`, `--png-compression`.
+- **Live preview na GUI**: mudar sticker/sombra/refinamento após remover o fundo atualiza
+  o preview imediatamente (sem re-executar a inferência).
+- **Testes**: `test_i18n` (PT/EN/ES), extensão do `test_postprocessing` (geometria, saveImage,
+  despill).
+
+### Corrigido
+
+- **Painel lateral da GUI**: largura mínima de 320px (antes 280px fixo cortava controlos).
+- **Efeitos aplicados duas vezes no export**: o worker aplicava `applyMaskEffects` no preview
+  e o save reaplicava `apply()` completo; agora o export aplica só `applyGeometry()`.
+- **Race condition no cancelamento**: `activeRunOptions_` partilhado entre threads do lote;
+  agora é um vetor de RunOptions ativos, cancelados todos atomicamente.
+- **Fundo sólido em modo transparente**: `backgroundColor.isValid()` forçava fundo sólido;
+  removida a condição extra.
+- **Dilatação do sticker O(w·h·r²)**: substituída por dilatação separável O(w·h·r).
+- **Escrita não-atómica**: `saveImage()` usa `QSaveFile` (commit atómico, sem ficheiro truncado).
+- **Limite superior de threads no lote CLI**: `-j N` limitado a `2×hardware_concurrency`.
+- **Resultados de watchers sem generation**: `colorWatcher_` e `autoCropWatcher_` agora
+  descartam resultados de imagens anteriores.
+- **Botão Cancelar durante busy**: não inicia novo job; cancela o lote se ativo.
+- **QDoubleSpinBox sem estilo no tema escuro** e falta de indicador de foco em botões/checkboxes.
+- **HelpWidget não atualizava cores** no toggle de tema (esperava evento errado).
+- **URL NuGet v2 morto** em `scripts/fetch-onnxruntime.sh` → migrado para v3-flatcontainer.
+- **`extract_tr.py`**: regex agora apanha `I18n::tr()` (CLI/batchprocessor), ordem correta de
+  unescape, deduplicação de pares, escape de aspas em atributos XML.
+
 ## [1.3.1] - 2026-11-22
 
 ### Corrigido

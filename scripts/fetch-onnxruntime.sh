@@ -100,7 +100,7 @@ case "$NPM_OS" in
         NUPKG="$TMP/ort.nupkg"
         curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
             -o "$NUPKG" \
-            "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/$VERSION"
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${VERSION}/microsoft.ml.onnxruntime.${VERSION}.nupkg"
         PYBIN="$(command -v python || command -v python3)"
         NUPKG="$NUPKG" DEST="$VENDOR/lib" "$PYBIN" - <<'PY'
 import os, zipfile

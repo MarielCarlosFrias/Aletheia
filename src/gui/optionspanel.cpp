@@ -233,13 +233,16 @@ QWidget* OptionsPanel::buildInspector(const OptionWidgets& w,
     inspectorLayout->addStretch();
 
     // O inspector vive dentro de uma area rolavel: com janelas baixas
-    // ele roda em vez de cortar os campos dos formularios.
+    // ele roda em vez de cortar os campos dos formularios. Largura
+    // mínima de 320px garante que os formularios (label + spinbox)
+    // nao ficam cortados; o splitter pode esticar ate 360px.
     auto* inspectorScroll = new QScrollArea(parent);
     inspectorScroll->setObjectName("inspectorScroll");
     inspectorScroll->setWidget(inspector);
     inspectorScroll->setWidgetResizable(true);
     inspectorScroll->setFrameShape(QFrame::NoFrame);
-    inspectorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    inspectorScroll->setFixedWidth(280);
+    inspectorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    inspectorScroll->setMinimumWidth(320);
+    inspectorScroll->setMaximumWidth(360);
     return inspectorScroll;
 }

@@ -118,7 +118,13 @@ BatchProcessor::Result BatchProcessor::processDirectory(
             modelCheck = BackgroundRemover::get(options_.modelPath);
         }
 
-        const int concurrency = std::max(1, options_.maxConcurrentImages);
+        // Limite superior de workers: evita criar milhares de threads
+        // com -j 10000 (cada uma com ativacoes ONNX em memoria).
+        const int hwThreads = std::max(
+            1, static_cast<int>(std::thread::hardware_concurrency()));
+        const int concurrency = std::clamp(
+            options_.maxConcurrentImages, 1,
+            std::min<int>(static_cast<int>(plan.size()), 2 * hwThreads));
         QMutex resultMutex;
         QMutex coutMutex;
 

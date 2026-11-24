@@ -93,6 +93,8 @@ private slots:
     void onSaveProcessingFinished();
     void onPostProcessFinished();
     void onAutoCropFinished();
+    void onEffectsReapplied();
+    void scheduleEffectsReapply();
     void openRecentFile();
 
 private:
@@ -221,7 +223,7 @@ private:
     UpdateChecker* updateChecker_ = nullptr;
     // Remocao por cor: a inundacao de regiao pode demorar segundos
     // numa foto grande, por isso corre na thread de trabalho.
-    QFutureWatcher<QImage> colorWatcher_;
+    QFutureWatcher<QPair<QImage, quint64>> colorWatcher_;
     // Pós-processamento e escrita do save (sticker/sombra, geometria,
     // qualidade e metadados) correm na thread de trabalho para não
     // bloquear a interface com imagens grandes.
@@ -241,6 +243,13 @@ private:
     // Auto-recorte (contentBounds percorre todos os pixels) tambem
     // corre na thread de trabalho.
     QFutureWatcher<QImage> autoCropWatcher_;
+
+    // Mascara base (sem efeitos) guardada apos a inferencia/cor, para
+    // o live preview reaplicar applyMaskEffects quando as opcoes mudam.
+    QImage maskBaseImage_;
+    QFutureWatcher<QImage> effectsWatcher_;
+    quint64 effectsGeneration_ = 0;
+    bool effectsReapplyPending_ = false;
 };
 
 #endif

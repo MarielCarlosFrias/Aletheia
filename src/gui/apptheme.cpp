@@ -131,8 +131,11 @@ QString stylesheet(bool dark)
     q += "QLabel#inspectorHint { font-size: 12px; line-height: 1.35; }\n";
     // Foco visivel em inputs: sem isto, saltar entre campos com o
     // Tab nao da nenhuma indicacao de onde o utilizador esta.
-    q += QString("QLineEdit:focus, QComboBox:focus, QSpinBox:focus {"
+    q += QString("QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {"
                  " border: 1px solid %1; }\n").arg(accent);
+    // Indicador de foco visivel em botoes e checkboxes (navegacao por Tab).
+    q += QString("QPushButton:focus { border: 2px solid %1; }\n").arg(accent);
+    q += QString("QCheckBox:focus { outline: 2px solid %1; outline-offset: 2px; }\n").arg(accent);
     // Tooltips com o tema (o Fusion por omissao usa amarelo/escuro
     // do sistema, que destoa de ambos os temas).
     q += QString("QToolTip { background: %1; color: %2;"
@@ -143,7 +146,7 @@ QString stylesheet(bool dark)
     q += QString("QScrollArea { background: %1; border: 0; }\n").arg(inputBg);
     q += "QScrollArea#inspectorScroll { background: transparent;"
          " border: 0; }\n";
-    q += QString("QLineEdit, QComboBox, QSpinBox { background: %1;"
+    q += QString("QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background: %1;"
                  " border: 1px solid %2; border-radius: 7px;"
                  " padding: 7px 9px; color: %3; }\n").arg(inputBg, border, text);
     q += QString("QPushButton { background: %1; border: 1px solid %2;"

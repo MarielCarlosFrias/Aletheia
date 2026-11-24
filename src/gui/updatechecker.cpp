@@ -8,14 +8,13 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSettings>
-
 #ifndef ALETHEIA_VERSION
 #define ALETHEIA_VERSION "1.0.0"
 #endif
 
 UpdateChecker::UpdateChecker(QObject* parent)
     : QObject(parent),
-      banner_(new QLabel)
+      banner_(new QLabel(nullptr))
 {
     banner_->setVisible(false);
     banner_->setObjectName("updateBanner");

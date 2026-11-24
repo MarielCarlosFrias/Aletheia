@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 class BackgroundRemover {
 public:
@@ -44,8 +45,7 @@ private:
     QImage composite(const QImage& img, const QImage& alpha) const;
     int detectInputSize(const QString& modelPath) const;
 
-    static QString computeSha256(const QString& path);
-    // Deteta alteracoes ao ficheiro do modelo sem o re-hashear:
+    // Deteta alteracoes ao ficheiro do modelo sem o re-ler:
     // compara tamanho e data de modificacao com os do carregamento.
     bool modelFileUnchanged() const;
 
@@ -62,17 +62,15 @@ private:
 
     // Metadados do ficheiro carregado.
     QString modelPath_;
-    QString modelSha_;
     qint64 modelSize_ = 0;
     QDateTime modelModified_;
 
     mutable std::atomic<bool> cancelRequested_{false};
     mutable std::mutex runMutex_;
-    // Partilhado de proposito: requestCancel() pode estar a usar o
-    // RunOptions no instante em que a inferencia termina. Com um
-    // ponteiro cru isso era um use-after-free (o objeto vive na pilha
-    // de removeBackground).
-    mutable std::shared_ptr<Ort::RunOptions> activeRunOptions_;
+    // Conjunto de RunOptions ativos: cada inferencia em curso regista o
+    // seu shared_ptr aqui; requestCancel() itera e chama SetTerminate()
+    // em TODOS, sem race entre workers do lote que partilham a sessao.
+    mutable std::vector<std::shared_ptr<Ort::RunOptions>> activeRunOptions_;
 
 private:
     static std::mutex cacheMutex_;

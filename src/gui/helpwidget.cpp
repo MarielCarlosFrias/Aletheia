@@ -30,7 +30,11 @@ HelpWidget::HelpWidget(QWidget* parent)
 
 bool HelpWidget::event(QEvent* event)
 {
-    if (event->type() == QEvent::ApplicationPaletteChange) {
+    // ApplicationPaletteChange vai para a QApplication; o widget recebe
+    // PaletteChange. StyleChange tambem: AppTheme::apply muda a stylesheet.
+    if (event->type() == QEvent::ApplicationPaletteChange
+        || event->type() == QEvent::PaletteChange
+        || event->type() == QEvent::StyleChange) {
         rebuildHtml();
     }
     return QTextBrowser::event(event);

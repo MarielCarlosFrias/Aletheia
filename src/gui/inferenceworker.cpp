@@ -104,7 +104,7 @@ void InferenceWorker::start(const QImage& image,
     cache_->cancelRequested.store(false);
 
     watcher_.setFuture(QtConcurrent::run(
-        [cache = cache_, img = image, options, modelPath, generation,
+        [cache = cache_, img = image, modelPath, generation,
          errModel, errOnnx, errGeneric, errUnknown, errCancelled]()
             -> InferenceResult {
             try {
@@ -125,14 +125,12 @@ void InferenceWorker::start(const QImage& image,
                     remover->requestCancel();
                     return { QImage(), errCancelled, generation };
                 }
-                // A inferencia devolve a mascara alfa com os efeitos de
-                // mascara (limiar, refinamento, sticker, sombra, fundo).
-                // A geometria de exportacao (recorte/rotacao/
-                // redimensionamento) e aplicada apenas no fluxo de
-                // guardar/copiar, para não ser aplicada duas vezes no
-                // preview.
-                return { ImagePostProcessor::applyMaskEffects(
-                             remover->removeBackground(img), options),
+                // A inferencia devolve a mascara alfa CRUA (sem efeitos).
+                // A GUI aplica applyMaskEffects() no onRemoveFinished e
+                // guarda a base para o live preview reaplicar os efeitos
+                // quando as opcoes mudam. A geometria (crop/rotacao/
+                // resize) so e aplicada no export.
+                return { remover->removeBackground(img),
                          QString(), generation };
             } catch (const Ort::Exception& e) {
                 return { QImage(),

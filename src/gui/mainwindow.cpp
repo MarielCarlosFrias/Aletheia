@@ -710,7 +710,7 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     // em tempo de execucao e persiste em QSettings.
 
     setWindowTitle("Aletheia " ALETHEIA_VERSION);
-    setMinimumSize(980, 680);
+    setMinimumSize(900, 600);
     resize(1320, 860);
 
     connect(btnThemeToggle_,   &QPushButton::clicked,
@@ -760,10 +760,36 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
             this,              &MainWindow::presetChanged);
     connect(stickerCheckBox_,  &QCheckBox::toggled, this, [this](bool) {
         if (presetCombo_->currentIndex() != 0) presetCombo_->setCurrentIndex(0);
+        scheduleEffectsReapply();
     });
     connect(shadowCheckBox_,   &QCheckBox::toggled, this, [this](bool) {
         if (presetCombo_->currentIndex() != 0) presetCombo_->setCurrentIndex(0);
+        scheduleEffectsReapply();
     });
+    connect(stickerWidthSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int) { scheduleEffectsReapply(); });
+    connect(shadowBlurSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int) { scheduleEffectsReapply(); });
+    connect(shadowOffsetXSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int) { scheduleEffectsReapply(); });
+    connect(shadowOffsetYSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int) { scheduleEffectsReapply(); });
+    connect(shadowOpacitySpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this](double) { scheduleEffectsReapply(); });
+    connect(refineCheckBox_, &QCheckBox::toggled, this, [this](bool) {
+        if (presetCombo_->currentIndex() != 0) presetCombo_->setCurrentIndex(0);
+        scheduleEffectsReapply();
+    });
+    connect(edgeRefinementSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this](double) { scheduleEffectsReapply(); });
+    connect(noiseCheckBox_, &QCheckBox::toggled, this, [this](bool) {
+        if (presetCombo_->currentIndex() != 0) presetCombo_->setCurrentIndex(0);
+        scheduleEffectsReapply();
+    });
+    connect(noiseThresholdSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int) { scheduleEffectsReapply(); });
+    connect(&effectsWatcher_, &QFutureWatcher<QImage>::finished,
+            this, &MainWindow::onEffectsReapplied);
     connect(stickerColorButton_, &QPushButton::clicked,
             this, &MainWindow::pickStickerColor);
 
@@ -784,7 +810,7 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     // A inferencia corre numa thread; o resultado volta pelo watcher.
     connect(inference_, &InferenceWorker::finished,
             this,       &MainWindow::onRemoveFinished);
-    connect(&colorWatcher_, &QFutureWatcher<QImage>::finished,
+    connect(&colorWatcher_, &QFutureWatcher<QPair<QImage, quint64>>::finished,
             this,            &MainWindow::onColorRemovalFinished);
     connect(&saveWatcher_, &QFutureWatcher<QImage>::finished,
             this,            &MainWindow::onSaveProcessingFinished);
@@ -1145,6 +1171,7 @@ void MainWindow::openPath(const QString& path) {
 
     ++imageGeneration_;
     preview_->clearResult();
+    maskBaseImage_ = QImage();
     btnAutoCrop_->setEnabled(false);
     btnDragOut_->setEnabled(false);
     preview_->setOriginal(img);
@@ -1264,24 +1291,22 @@ void MainWindow::removeBackground() {
         return;
     }
     if (inference_->isRunning()) {
-        // O modelo e carregado na thread de trabalho: enquanto nao
-        // houver sessao na cache nao ha o que cancelar.
-        std::shared_ptr<BackgroundRemover> remover;
-        {
-            QMutexLocker lock(&modelCache_->mutex);
-            if (modelCache_->remover
-                && modelCache_->loadedPath == modelPathEdit_->text())
-                remover = modelCache_->remover;
-        }
-        if (remover) {
-            inference_->cancel();
-            logEdit_->appendPlainText("[INFO] " + TR("Cancelamento solicitado.", "Cancellation requested."));
-        } else {
-            logEdit_->appendPlainText("[INFO] " + TR("A carregar o modelo...", "Loading the model..."));
+        // Cancela incondicionalmente: o worker trata do caso de o modelo
+        // ainda estar a carregar (flag cancelRequested).
+        inference_->cancel();
+        logEdit_->appendPlainText("[INFO] " + TR("Cancelamento solicitado.", "Cancellation requested."));
+        return;
+    }
+    // Bloquear se outro job estiver ativo (lote, cor, save, copy, crop).
+    if (isBusy_ || batch_->isRunning() || colorWatcher_.isRunning()
+        || saveWatcher_.isRunning() || postProcessWatcher_.isRunning()
+        || autoCropWatcher_.isRunning()) {
+        if (batch_->isRunning()) {
+            batch_->requestCancel();
+            logEdit_->appendPlainText("[INFO] " + TR("Cancelamento do lote solicitado.", "Batch cancellation requested."));
         }
         return;
     }
-    if (batch_->isRunning()) return;
 
     // A inferencia corre numa thread de trabalho: a janela continua
     // reativa e o modelo e carregado la dentro (pode demorar segundos).
@@ -1341,7 +1366,17 @@ void MainWindow::onRemoveFinished(const InferenceResult& res)
         maybeCloseAfterJobs();
         return;
     }
-    preview_->setResult(res.image);
+    // Guarda a mascara crua como base para o live preview; aplica os
+    // efeitos de mascara (sticker/sombra/limiar/refinamento) no preview.
+    maskBaseImage_ = res.image;
+    {
+        ProcessingOptions fx = currentProcessingOptions();
+        fx.backgroundStyle = ProcessingOptions::BgTransparent;
+        fx.backgroundColor = QColor();
+        preview_->setResult(
+            ImagePostProcessor::applyMaskEffects(res.image, fx,
+                                                 preview_->originalImage()));
+    }
     updateResultDisplay();
     btnAutoCrop_->setEnabled(true);
     btnDragOut_->setEnabled(true);
@@ -1435,10 +1470,14 @@ void MainWindow::saveResult() {
                        "Processing image for save..."));
     saveWatcher_.setFuture(QtConcurrent::run(
         [img = preview_->resultImage(), opts = saveOptions,
-         orig = preview_->originalImage(), outPath = path,
+         outPath = path,
          source = sourcePath]() -> SaveOutcome {
+            // O resultado do preview ja tem os efeitos de mascara
+            // (sticker/sombra/limiar) aplicados pelo worker; no export
+            // aplicamos apenas a geometria (crop/rotacao/resize) para
+            // nao duplicar os efeitos.
             const QImage processed =
-                ImagePostProcessor::apply(img, opts, orig);
+                ImagePostProcessor::applyGeometry(img, opts);
             QString error;
             const bool success = ImagePostProcessor::saveImage(
                 processed, outPath, opts, source, &error);
@@ -1514,9 +1553,10 @@ void MainWindow::copyResult()
     progressBar_->setRange(0, 0);
     progressBar_->setVisible(true);
     postProcessWatcher_.setFuture(QtConcurrent::run(
-        [img = preview_->resultImage(), opts = pendingPostOptions_,
-         orig = preview_->originalImage()]() {
-            return ImagePostProcessor::apply(img, opts, orig);
+        [img = preview_->resultImage(), opts = pendingPostOptions_]() {
+            // Resultado do preview ja tem efeitos de mascara; so a
+            // geometria (crop/rotacao/resize) falta aplicar.
+            return ImagePostProcessor::applyGeometry(img, opts);
         }));
 }
 
@@ -1601,9 +1641,8 @@ void MainWindow::copyTransparentResult()
     progressBar_->setValue(0);
     progressBar_->setVisible(true);
     postProcessWatcher_.setFuture(QtConcurrent::run(
-        [img = preview_->resultImage(), opts = pendingPostOptions_,
-         orig = preview_->originalImage()]() {
-            return ImagePostProcessor::apply(img, opts, orig);
+        [img = preview_->resultImage(), opts = pendingPostOptions_]() {
+            return ImagePostProcessor::applyGeometry(img, opts);
         }));
 }
 
@@ -2284,9 +2323,8 @@ void MainWindow::startDragOut()
     progressBar_->setRange(0, 0);
     progressBar_->setVisible(true);
     postProcessWatcher_.setFuture(QtConcurrent::run(
-        [img = preview_->resultImage(), opts = dragOptions,
-         orig = preview_->originalImage()]() {
-            return ImagePostProcessor::apply(img, opts, orig);
+        [img = preview_->resultImage(), opts = dragOptions]() {
+            return ImagePostProcessor::applyGeometry(img, opts);
         }));
 }
 
@@ -2364,7 +2402,9 @@ void MainWindow::removeByColor()
             TR("Abra uma imagem primeiro.", "Open an image first."));
         return;
     }
-    if (colorWatcher_.isRunning()) return;
+    if (isBusy_ || colorWatcher_.isRunning() || inference_->isRunning()
+        || saveWatcher_.isRunning() || postProcessWatcher_.isRunning()
+        || autoCropWatcher_.isRunning()) return;
 
     const int tol = colorToleranceSpin_->value();
     const bool contiguous = colorContiguousCheckBox_->isChecked();
@@ -2379,11 +2419,18 @@ void MainWindow::removeByColor()
     progressBar_->setRange(0, 0);
     progressBar_->setValue(0);
     progressBar_->setVisible(true);
+    const quint64 generation = imageGeneration_;
     colorWatcher_.setFuture(QtConcurrent::run(
         [img = preview_->originalImage(), color = keyColor_,
-         tol, contiguous, pixelArt, despill, feather]() {
-            return ImagePostProcessor::removeByColor(
+         tol, contiguous, pixelArt, despill, feather, generation]() {
+            ProcessingOptions opts;
+            opts.cleanNoise = false;
+            QImage mask = ImagePostProcessor::removeByColor(
                 img, color, tol, contiguous, pixelArt, despill, feather);
+            // Aplica os mesmos efeitos de mascara do modo IA para o
+            // preview ser consistente com o que o export produz.
+            return std::make_pair(
+                ImagePostProcessor::applyMaskEffects(mask, opts), generation);
         }));
 }
 
@@ -2394,8 +2441,27 @@ void MainWindow::onColorRemovalFinished()
     progressBar_->setValue(0);
     setUiBusy(false);
 
-    const QImage removed = colorWatcher_.result();
+    const auto result = colorWatcher_.result();
+    // Descartar resultado de uma imagem anterior (trocada durante o job).
+    if (result.second != imageGeneration_) {
+        logEdit_->appendPlainText("[INFO] " + TR(
+            "Resultado de uma imagem anterior ignorado.",
+            "Result from a previous image ignored."));
+        emit jobFinished();
+        maybeCloseAfterJobs();
+        return;
+    }
+    const QImage removed = result.first;
     if (!removed.isNull()) {
+        // Guarda a mascara crua (antes dos efeitos) como base para o
+        // live preview; o preview mostra com os efeitos aplicados.
+        maskBaseImage_ = ImagePostProcessor::removeByColor(
+            preview_->originalImage(), keyColor_,
+            colorToleranceSpin_->value(),
+            colorContiguousCheckBox_->isChecked(),
+            colorPixelArtCheckBox_->isChecked(),
+            chromaDespillSpin_->value() / 100.0f,
+            chromaFeatherSpin_->value());
         preview_->setResult(removed);
         updateResultDisplay();
         btnAutoCrop_->setEnabled(true);
@@ -2409,4 +2475,41 @@ void MainWindow::onColorRemovalFinished()
     }
     emit jobFinished();
     maybeCloseAfterJobs();
+}
+
+// ---- Live preview: reaplicar efeitos de mascara quando as opcoes mudam ----
+
+void MainWindow::scheduleEffectsReapply()
+{
+    if (isBusy_ || maskBaseImage_.isNull()) return;
+    if (effectsWatcher_.isRunning()) {
+        // Um pedido ja esta a correr; marcar para repetir no fim.
+        effectsReapplyPending_ = true;
+        return;
+    }
+    effectsReapplyPending_ = false;
+    effectsGeneration_ = imageGeneration_;
+    ProcessingOptions opts = currentProcessingOptions();
+    opts.backgroundStyle = ProcessingOptions::BgTransparent;
+    opts.backgroundColor = QColor();
+    const QImage base = maskBaseImage_;
+    const QImage orig = preview_->originalImage();
+    effectsWatcher_.setFuture(QtConcurrent::run(
+        [base, opts, orig]() {
+            return ImagePostProcessor::applyMaskEffects(base, opts, orig);
+        }));
+}
+
+void MainWindow::onEffectsReapplied()
+{
+    if (effectsWatcher_.result().isNull()) return;
+    // So aplica se a imagem ainda e a mesma (generation unchanged).
+    if (effectsGeneration_ == imageGeneration_) {
+        preview_->setResult(effectsWatcher_.result());
+        updateResultDisplay();
+    }
+    if (effectsReapplyPending_) {
+        effectsReapplyPending_ = false;
+        scheduleEffectsReapply();
+    }
 }

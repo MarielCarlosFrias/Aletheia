@@ -1,4 +1,4 @@
-.TH ALETHEIA_CLI 1 "2026-11-10" "Aletheia 1.2.3" "User Commands"
+.TH ALETHEIA_CLI 1 "2026-11-24" "Aletheia 1.4.0" "User Commands"
 .SH NAME
 aletheia_cli \- remove image backgrounds in batch
 .SH SYNOPSIS
@@ -200,6 +200,16 @@ aletheia_cli ~/Pictures/input ~/Pictures/output u2net.onnx
 .SH EXIT STATUS
 Returns 0 when every image was processed successfully. Returns 1 when
 the input/output directory is invalid, the model cannot be loaded, or at
-least one image fails.
+least one image fails. Returns 130 when interrupted by Ctrl+C (SIGINT/SIGTERM).
+.SH ENVIRONMENT
+.TP
+.B ALETHEIA_LANG
+Interface language: pt, en or es (default: system locale).
+.TP
+.B ALETHEIA_PROVIDER
+ONNX execution provider: auto, cpu, cuda, dml or coreml (default: auto).
+.TP
+.B ALETHEIA_NO_UPDATE_CHECK
+If set, disables the update check (GUI only).
 .SH SEE ALSO
 Project page: https://github.com/MarielCarlosFrias/aletheia

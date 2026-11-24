@@ -1,7 +1,6 @@
 #include "backgroundremover.h"
 #include <QDebug>
 #include <QFileInfo>
-#include <QCryptographicHash>
 #include <QFile>
 #include <QDateTime>
 #include <QProcessEnvironment>
@@ -82,23 +81,6 @@ std::mutex BackgroundRemover::cacheMutex_;
 std::unordered_map<QString, std::weak_ptr<BackgroundRemover>> BackgroundRemover::cache_;
 
 
-QString BackgroundRemover::computeSha256(const QString& path) {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        return QString();
-    }
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    while (!file.atEnd()) {
-        QByteArray buffer = file.read(8192);
-        if (buffer.isEmpty() && !file.atEnd()) {
-            // erro de leitura
-            break;
-        }
-        hash.addData(buffer);
-    }
-    return hash.result().toHex();
-}
-
 BackgroundRemover::BackgroundRemover(const QString& modelPath)
     : env_(ORT_LOGGING_LEVEL_WARNING, "aletheia"),
       session_(nullptr),
@@ -171,13 +153,12 @@ BackgroundRemover::BackgroundRemover(const QString& modelPath)
              sizeStr,
              QString::fromStdString(output_name_));
 
-    // Metadados do ficheiro: o SHA256 e calculado uma unica vez (por
-    // carregamento) e as alteracoes posteriores sao detetadas por
-    // tamanho/data, sem volver a ler os 176 MB do modelo.
+    // Metadados do ficheiro: o tamanho e a data de modificacao sao
+    // guardados para detetar alteracoes sem re-ler o modelo inteiro
+    // (176 MB+ por carga).
     const QFileInfo info(modelPath_);
     modelSize_ = info.size();
     modelModified_ = info.lastModified();
-    modelSha_ = BackgroundRemover::computeSha256(modelPath);
 }
 
 bool BackgroundRemover::modelFileUnchanged() const
@@ -210,16 +191,17 @@ std::shared_ptr<BackgroundRemover> BackgroundRemover::get(const QString& modelPa
 
 void BackgroundRemover::requestCancel() {
     cancelRequested_.store(true);
-    // Copia partilhada: o RunOptions continua vivo mesmo que a
-    // inferencia termine entre a leitura e a chamada a SetTerminate().
-    std::shared_ptr<Ort::RunOptions> opts;
+    // Cancela TODAS as inferencias em curso desta sessao: no lote CLI
+    // varias threads podem estar a correr removeBackground() em
+    // simultaneo sobre a mesma instancia partilhada.
+    std::vector<std::shared_ptr<Ort::RunOptions>> opts;
     {
         std::lock_guard<std::mutex> lock(runMutex_);
         opts = activeRunOptions_;
     }
-    if (opts) {
+    for (auto& o : opts) {
         try {
-            opts->SetTerminate();
+            o->SetTerminate();
         } catch (...) {
             // ignorar falhas de cancelamento
         }
@@ -283,13 +265,13 @@ QImage BackgroundRemover::removeBackground(const QImage& input) {
     const char* in_name  = input_name_.c_str();
     const char* out_name = output_name_.c_str();
 
-    // O RunOptions vive num shared_ptr: requestCancel() pode estar a
-    // usa-lo quando a inferencia acaba (com um ponteiro para um objeto
-    // da pilha isso era um use-after-free).
+    // O RunOptions vive num shared_ptr registado no vetor de ativos:
+    // requestCancel() pode estar a usa-lo quando a inferencia acaba
+    // (com um ponteiro para um objeto da pilha isso era use-after-free).
     auto runOptions = std::make_shared<Ort::RunOptions>();
     {
         std::lock_guard<std::mutex> lock(runMutex_);
-        activeRunOptions_ = runOptions;
+        activeRunOptions_.push_back(runOptions);
     }
 
     std::vector<Ort::Value> outputs;
@@ -300,12 +282,15 @@ QImage BackgroundRemover::removeBackground(const QImage& input) {
             &out_name, 1);
     } catch (...) {
         std::lock_guard<std::mutex> lock(runMutex_);
-        activeRunOptions_ = nullptr;
+        // Remove este runOptions do vetor (procura por ponteiro).
+        auto& v = activeRunOptions_;
+        v.erase(std::remove(v.begin(), v.end(), runOptions), v.end());
         throw;
     }
     {
         std::lock_guard<std::mutex> lock(runMutex_);
-        activeRunOptions_ = nullptr;
+        auto& v = activeRunOptions_;
+        v.erase(std::remove(v.begin(), v.end(), runOptions), v.end());
     }
 
     if (cancelRequested_.load()) {
