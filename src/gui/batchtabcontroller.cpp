@@ -319,7 +319,6 @@ void BatchTabController::processBatchStep()
     watcher_.setFuture(QtConcurrent::run(
         [cache = config_.modelCache, options = batchOptions_,
          in = entry.inputPath, out = entry.outputPath,
-         format = batchOutputExtension_,
          errLoad, errSave, errModel, errOnnx, errUnknown]() -> QString {
             try {
                 // setAutoTransform respeita a orientacao EXIF, como no
@@ -338,8 +337,12 @@ void BatchTabController::processBatchStep()
                 }
                 const QImage processed = ImagePostProcessor::apply(
                     r->removeBackground(img), options);
-                if (!processed.save(out, format.toUtf8().constData()))
-                    return errSave;
+                QString saveError;
+                if (!ImagePostProcessor::saveImage(
+                        processed, out, options, in, &saveError)) {
+                    return saveError.isEmpty()
+                        ? errSave : errSave + QStringLiteral(": ") + saveError;
+                }
                 return QString();
             } catch (const Ort::Exception& e) {
                 return errOnnx + QString::fromUtf8(e.what());

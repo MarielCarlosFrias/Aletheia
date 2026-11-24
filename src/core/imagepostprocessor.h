@@ -10,6 +10,27 @@ public:
     static QImage apply(const QImage& input,
                         const ProcessingOptions& options,
                         const QImage& originalImage = QImage());
+
+    // Geometria de saída (recorte/rotação/redimensionamento) definida em
+    // ProcessingOptions. Chamada automaticamente no fim de apply() e
+    // exposta para reutilização (preview, testes, CLI).
+    static QImage applyGeometry(const QImage& input,
+                                const ProcessingOptions& options);
+
+    // Grava a imagem respeitando compressão/qualidade de
+    // ProcessingOptions e preservando metadados do ficheiro de origem
+    // quando possível:
+    //   * JPEG -> APP1/EXIF copiado do original, com o tag de orientação
+    //     normalizado para 1 (os pixéis já foram corrigidos no load);
+    //   * PNG  -> perfil de cor ICC (iCCP) via QImage::setColorSpace;
+    //   * EXIF de origem pode ser passado em sourcePath (vazio = sem
+    //     metadados a preservar).
+    // Devolve false e preenche error em caso de falha.
+    static bool saveImage(const QImage& image,
+                          const QString& outputPath,
+                          const ProcessingOptions& options,
+                          const QString& sourcePath = QString(),
+                          QString* error = nullptr);
     static QImage applyAlphaThreshold(const QImage& input,
                                       float threshold);
     static QImage applyEdgeRefinement(const QImage& input,
@@ -42,7 +63,9 @@ public:
                                 const QColor& targetColor,
                                 int tolerance = 0,
                                 bool contiguous = false,
-                                bool preservePixelArt = true);
+                                bool preservePixelArt = true,
+                                float despill = 0.0f,
+                                int featherRadius = 0);
 
     // Carrega uma imagem respeitando a orientação EXIF (fotos de telemóvel).
     static QImage loadImage(const QString& path);

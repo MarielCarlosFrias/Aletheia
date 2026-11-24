@@ -2,53 +2,53 @@
 #define I18N_H
 
 #include <QLocale>
-#include <QSettings>
 #include <QString>
 #include <QtGlobal>
 
-// Internacionalizacao leve, sem ferramentas externas: cada chamada
-// traz o texto em PT-BR e em EN. O idioma ativo vem, nesta ordem, de
-//   1. variavel de ambiente ALETHEIA_LANG=pt|en (BG_REMOVER_LANG ainda
-//      funciona por compatibilidade)
+// Internacionalizacao leve, sem ferramentas externas no build: cada
+// chamada traz o texto em PT-BR e em EN. Para PT/EN a traducao e a
+// propria string (custo zero, sem ficheiros). Para os restantes idiomas
+// (ex.: ES) e carregado, uma unica vez, um dicionario JSON em
+//   :/i18n/aletheia_<codigo>.json            (recurso embutido) ou
+//   <app>/translations/aletheia_<codigo>.json
+// com pares {"texto em PT": "texto traduzido"}. Sem dicionario (ou com
+// uma chave em falta) o texto cai para o EN: a interface nunca aparece
+// com chaves cruas.
+//
+// O idioma ativo vem, nesta ordem, de
+//   1. variavel de ambiente ALETHEIA_LANG=pt|en|es (BG_REMOVER_LANG
+//      ainda funciona por compatibilidade)
 //   2. QSettings (seletor de idioma na interface)
-//   3. localidade do sistema (portugues -> PT-BR, senao EN)
+//   3. localidade do sistema (portugues -> PT-BR, espanhol -> ES,
+//      senao EN)
 namespace I18n {
 
-enum class Lang { PtBr, En };
+enum class Lang { PtBr, En, Es };
 
-inline Lang detectLang()
-{
-    QString env = qEnvironmentVariable("ALETHEIA_LANG").toLower();
-    if (env.isEmpty()) env = qEnvironmentVariable("BG_REMOVER_LANG").toLower();
-    if (env == "en") return Lang::En;
-    if (env == "pt") return Lang::PtBr;
+// Codigo estavel usado em QSettings/ambiente ("pt", "en", "es").
+QString code(Lang lang);
 
-    QSettings settings("aletheia", "aletheia");
-    QString saved = settings.value("lang").toString();
-    if (saved.isEmpty()) {
-        QSettings legacySettings("bg-remover", "bg-remover");
-        saved = legacySettings.value("lang").toString();
-    }
-    if (saved == "en") return Lang::En;
-    if (saved == "pt") return Lang::PtBr;
+// Converte "pt", "pt_BR", "en-US", "es_ES", ... no Lang correspondente.
+// Idiomas desconhecidos caem para o fallback indicado.
+Lang fromCode(const QString& code, Lang fallback = Lang::En);
 
-    return QLocale::system().language() == QLocale::Portuguese
-               ? Lang::PtBr : Lang::En;
-}
+Lang detectLang();
 
-inline Lang lang()
-{
-    // O idioma so muda ao reiniciar (a UI avisa disso), por isso
-    // deteta-se uma unica vez em vez de ler QSettings em cada TR().
-    static const Lang cached = detectLang();
-    return cached;
-}
+// O idioma e detetado uma unica vez (mudar de idioma exige reiniciar a
+// interface, que avisa o utilizador), por isso nao ha leitura de
+// QSettings em cada TR().
+Lang lang();
 
-inline QString tr(const char* ptBr, const char* en)
-{
-    return lang() == Lang::En ? QString::fromUtf8(en)
-                              : QString::fromUtf8(ptBr);
-}
+// Nome do idioma na propria lingua (para o seletor): Portugues, English,
+// Espanol. Nao passa pelo tradutor de proposito.
+QString nativeName(Lang lang);
+
+// Verdadeiro se o idioma pode ser apresentado. PT/EN estao sempre
+// disponiveis porque vivem no proprio codigo; os demais dependem da
+// existencia de um dicionario embutido ou instalado.
+bool dictionaryAvailable(Lang lang);
+
+QString tr(const char* ptBr, const char* en);
 
 } // namespace I18n
 

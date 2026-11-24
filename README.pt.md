@@ -119,6 +119,18 @@ Pressione `F1` ou abra a aba **Ajuda** para acessar o manual rápido, explicaç�
 
 ---
 
+## 🌐 Idiomas / Languages
+
+O programa está disponível em **Português do Brasil**, **English** e **Español**. O idioma é detetado automaticamente a partir da localidade do sistema e pode ser alterado no cabeçalho da aplicação (a alteração é aplicada ao reiniciar). A variável de ambiente `ALETHEIA_LANG=pt|en|es` também pode ser usada para forçar um idioma.
+
+The app is available in **Brazilian Portuguese**, **English** and **Spanish**. The language is detected automatically from the system locale and can be changed in the app header (applied on restart). The environment variable `ALETHEIA_LANG=pt|en|es` can also be used to force a language.
+
+Novos idiomas podem ser adicionados editando os dicionários JSON em `translations/aletheia_<código>.json` (veja `translations/README.md`).
+
+New languages can be added by editing JSON dictionaries in `translations/aletheia_<code>.json` (see `translations/README.md`).
+
+---
+
 ## 💻 Linha de Comando (CLI)
 
 O executável standalone `aletheia_cli` permite automação em scripts, servidores sem tela e pipelines de processamento:
@@ -127,8 +139,29 @@ O executável standalone `aletheia_cli` permite automação em scripts, servidor
 # Processar uma pasta em lote
 aletheia_cli /caminho/para/fotos -o /caminho/para/saida
 
+# Processar uma única imagem
+aletheia_cli foto.png -o foto_rembg.png
+
 # Especificar modelo ONNX e formato WebP
 aletheia_cli /caminho/para/fotos -o /caminho/para/saida -m modelo.onnx -f webp
+
+# Processar 4 imagens em paralelo (1 = sequencial, o padrão)
+aletheia_cli /caminho/para/fotos -o /caminho/para/saida -j 4
+
+# Exportar JPEG com qualidade 92
+aletheia_cli /caminho/para/fotos -o /caminho/para/saida -f jpg --quality 92
+
+# PNG com compressão máxima
+aletheia_cli /caminho/para/fotos -o /caminho/para/saida -f png --png-compression 9
+
+# Redimensionar e rotacionar
+aletheia_cli foto.png -o saida.png --resize 1000x1000 --rotate 90
+
+# Recorte normalizado (x,y,largura,altura em 0..1)
+aletheia_cli foto.png -o saida.png --crop 0.1,0.1,0.8,0.8
+
+# Chroma key com descontaminação e suavização
+aletheia_cli sprite.png --chroma-key '#00ff00' --despill 80 --feather 1
 
 # Sintaxe posicional clássica
 aletheia_cli <pasta_entrada> [pasta_saida] [modelo.onnx]
@@ -137,6 +170,29 @@ aletheia_cli <pasta_entrada> [pasta_saida] [modelo.onnx]
 aletheia_cli --help
 aletheia_cli --version
 ```
+Opções completas da CLI:
+- `-o, --output` — diretório/arquivo de saída
+- `-m, --model` — caminho do modelo ONNX
+- `-f, --format` — png, jpg ou webp
+- `-j, --jobs` — imagens em paralelo (1 = sequencial)
+- `--quality N` — qualidade JPEG/WebP (1-100)
+- `--png-compression N` — compressão PNG (0-9)
+- `--threshold N` — limiar alfa (0-255)
+- `--clean-noise` — tornar transparentes pixels abaixo do limiar alfa
+- `--refine-intensity N` — intensidade do refinamento de bordas (0-100)
+- `--sticker` / `--sticker-width N` / `--sticker-color #RRGGBB` — contorno de sticker
+- `--shadow` / `--shadow-blur` / `--shadow-offset-x` / `--shadow-offset-y` / `--shadow-opacity` — sombra projetada
+- `--background #RRGGBB` — fundo sólido de saída
+- `--resize W[×H]` — tamanho final
+- `--rotate N` — 0, 90, 180 ou 270 graus
+- `--crop x,y,l,h` — recorte normalizado (0..1)
+- `--chroma-key #RRGGBB` — remoção por cor em vez de IA
+- `--chroma-tolerance N` — tolerância da cor-chave (0-100)
+- `--chroma-contiguous` — remove apenas cor conectada às bordas
+- `--chroma-soft-edges` — desativa bordas rígidas de Pixel Art
+- `--despill N` — descontaminação da cor-chave (0-100)
+- `--feather N` — raio de suavização da máscara (0-5)
+- `--no-metadata` — não copia EXIF/GPS/texto dos metadados
 
 ---
 

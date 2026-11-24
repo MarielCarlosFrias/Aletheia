@@ -27,6 +27,12 @@ public:
         const QString& inputDir,
         const QString& outputDir);
 
+    // Processa um ficheiro isolado. Em modo Chroma Key nao precisa de
+    // modelo ONNX; caso contrario usa o mesmo motor e as mesmas opcoes
+    // do processamento em lote.
+    Result processFile(const QString& inputPath,
+                       const QString& outputPath);
+
     // Aponta para uma flag externa de cancelamento (ex.: handler de
     // SIGINT no CLI). O lote para no proximo indice livre.
     void setCancelFlag(std::atomic<bool>* flag) { cancelFlag_ = flag; }

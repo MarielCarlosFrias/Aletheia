@@ -4,6 +4,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -78,6 +79,9 @@ QWidget* OptionsPanel::buildInspector(const OptionWidgets& w,
     w.colorToleranceSpin->setToolTip(TR("0% para pixel art exato; aumente para fundos com ruído ou variações",
                                         "0% for exact pixel art; increase for noisy backgrounds"));
     colorForm->addRow(TR("Tolerância", "Tolerance"), w.colorToleranceSpin);
+    colorForm->addRow(TR("Descontaminação", "Despill"),
+                      w.chromaDespillSpin);
+    colorForm->addRow(TR("Suavização", "Feather"), w.chromaFeatherSpin);
     colorLayout->addLayout(colorForm);
 
     w.colorContiguousCheckBox->setChecked(false);
@@ -115,6 +119,29 @@ QWidget* OptionsPanel::buildInspector(const OptionWidgets& w,
     w.saveFormatCombo->addItem(TR("WebP", "WebP"));
     outputForm->addRow(TR("Formato", "Format"),
                        w.saveFormatCombo);
+    outputForm->addRow(TR("Qualidade JPEG/WebP", "JPEG/WebP quality"),
+                       w.exportQualitySpin);
+    outputForm->addRow(TR("Compressão PNG", "PNG compression"),
+                       w.pngCompressionSpin);
+    outputForm->addRow(w.preserveMetadataCheckBox);
+
+    auto* sizeRow = new QHBoxLayout;
+    sizeRow->setContentsMargins(0, 0, 0, 0);
+    sizeRow->addWidget(w.outputWidthSpin);
+    sizeRow->addWidget(new QLabel(TR("×", "×")));
+    sizeRow->addWidget(w.outputHeightSpin);
+    outputForm->addRow(TR("Tamanho final", "Final size"), sizeRow);
+    outputForm->addRow(TR("Rotação", "Rotation"), w.rotationCombo);
+    auto* qualitySpin = w.exportQualitySpin;
+    auto* compressionSpin = w.pngCompressionSpin;
+    const auto updateQualityControls = [qualitySpin, compressionSpin](int index) {
+        qualitySpin->setEnabled(index != 0);
+        compressionSpin->setEnabled(index == 0);
+    };
+    QObject::connect(w.saveFormatCombo, QOverload<int>::of(
+                         &QComboBox::currentIndexChanged),
+                     w.saveFormatCombo, updateQualityControls);
+    updateQualityControls(w.saveFormatCombo->currentIndex());
     secOutputLayout->addLayout(outputForm);
 
     // Ajustes agrupados numa superficie propria: leem-se como um
@@ -125,6 +152,12 @@ QWidget* OptionsPanel::buildInspector(const OptionWidgets& w,
     settingsBlockLayout->setContentsMargins(11, 10, 11, 10);
     settingsBlockLayout->setSpacing(6);
     settingsBlockLayout->addWidget(w.refineCheckBox);
+    auto* edgeRow = new QHBoxLayout;
+    edgeRow->setContentsMargins(22, 0, 0, 0);
+    edgeRow->addWidget(new QLabel(TR("Intensidade", "Intensity")));
+    edgeRow->addWidget(w.edgeRefinementSpin, 1);
+    settingsBlockLayout->addLayout(edgeRow);
+
     settingsBlockLayout->addWidget(w.noiseCheckBox);
     auto* noiseRow = new QHBoxLayout;
     noiseRow->setContentsMargins(22, 0, 0, 0);
@@ -137,8 +170,37 @@ QWidget* OptionsPanel::buildInspector(const OptionWidgets& w,
     noiseRow->addWidget(new QLabel(TR("Limiar", "Threshold")));
     noiseRow->addWidget(w.noiseThresholdSpin, 1);
     settingsBlockLayout->addLayout(noiseRow);
+
     settingsBlockLayout->addWidget(w.stickerCheckBox);
+    auto* stickerWidthRow = new QHBoxLayout;
+    stickerWidthRow->setContentsMargins(22, 0, 0, 0);
+    stickerWidthRow->addWidget(new QLabel(TR("Espessura", "Width")));
+    stickerWidthRow->addWidget(w.stickerWidthSpin, 1);
+    settingsBlockLayout->addLayout(stickerWidthRow);
+    auto* stickerColorRow = new QHBoxLayout;
+    stickerColorRow->setContentsMargins(22, 0, 0, 0);
+    stickerColorRow->addWidget(new QLabel(TR("Cor", "Color")));
+    stickerColorRow->addWidget(w.stickerColorButton, 1);
+    settingsBlockLayout->addLayout(stickerColorRow);
+
     settingsBlockLayout->addWidget(w.shadowCheckBox);
+    auto* shadowBlurRow = new QHBoxLayout;
+    shadowBlurRow->setContentsMargins(22, 0, 0, 0);
+    shadowBlurRow->addWidget(new QLabel(TR("Desfoque", "Blur")));
+    shadowBlurRow->addWidget(w.shadowBlurSpin, 1);
+    settingsBlockLayout->addLayout(shadowBlurRow);
+    auto* shadowOffsetRow = new QHBoxLayout;
+    shadowOffsetRow->setContentsMargins(22, 0, 0, 0);
+    shadowOffsetRow->addWidget(new QLabel(TR("Deslocamento", "Offset")));
+    shadowOffsetRow->addWidget(w.shadowOffsetXSpin);
+    shadowOffsetRow->addWidget(new QLabel(TR("×", "×")));
+    shadowOffsetRow->addWidget(w.shadowOffsetYSpin);
+    settingsBlockLayout->addLayout(shadowOffsetRow);
+    auto* shadowOpacityRow = new QHBoxLayout;
+    shadowOpacityRow->setContentsMargins(22, 0, 0, 0);
+    shadowOpacityRow->addWidget(new QLabel(TR("Opacidade", "Opacity")));
+    shadowOpacityRow->addWidget(w.shadowOpacitySpin, 1);
+    settingsBlockLayout->addLayout(shadowOpacityRow);
     secOutputLayout->addWidget(settingsBlock);
 
     inspectorLayout->addWidget(secOutput);

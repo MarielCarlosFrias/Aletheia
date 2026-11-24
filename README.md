@@ -119,6 +119,18 @@ Press `F1` or open the **Help** tab for a quickstart guide, tool explanations, a
 
 ---
 
+## 🌐 Idiomas / Languages
+
+O programa está disponível em **Português do Brasil**, **English** e **Español**. O idioma é detetado automaticamente a partir da localidade do sistema e pode ser alterado no cabeçalho da aplicação (a alteração é aplicada ao reiniciar). A variável de ambiente `ALETHEIA_LANG=pt|en|es` também pode ser usada para forçar um idioma.
+
+The app is available in **Brazilian Portuguese**, **English** and **Spanish**. The language is detected automatically from the system locale and can be changed in the app header (applied on restart). The environment variable `ALETHEIA_LANG=pt|en|es` can also be used to force a language.
+
+Novos idiomas podem ser adicionados editando os dicionários JSON em `translations/aletheia_<código>.json` (veja `translations/README.md`).
+
+New languages can be added by editing JSON dictionaries in `translations/aletheia_<code>.json` (see `translations/README.md`).
+
+---
+
 ## 💻 Command Line Interface (CLI)
 
 The package includes a standalone CLI binary (`aletheia_cli`) suitable for headless servers, build scripts, and automation:
@@ -127,11 +139,29 @@ The package includes a standalone CLI binary (`aletheia_cli`) suitable for headl
 # Basic batch folder processing
 aletheia_cli /path/to/input_folder -o /path/to/output_folder
 
+# Process a single image
+aletheia_cli photo.png -o photo_rembg.png
+
 # Use a specific ONNX model and export to WebP
 aletheia_cli /path/to/input_folder -o /path/to/output -m path/to/model.onnx -f webp
 
 # Process 4 images in parallel (1 = sequential, the default)
 aletheia_cli /path/to/input_folder -o /path/to/output -j 4
+
+# JPEG export with quality 92
+aletheia_cli /path/to/input_folder -o /path/to/output -f jpg --quality 92
+
+# PNG with maximum compression
+aletheia_cli /path/to/input_folder -o /path/to/output -f png --png-compression 9
+
+# Resize and rotate
+aletheia_cli photo.png -o out.png --resize 1000x1000 --rotate 90
+
+# Normalized crop (x,y,width,height in 0..1)
+aletheia_cli photo.png -o out.png --crop 0.1,0.1,0.8,0.8
+
+# Chroma key with despill and feather
+aletheia_cli sprite.png --chroma-key '#00ff00' --despill 80 --feather 1
 
 # Positional legacy syntax
 aletheia_cli <input_folder> [output_folder] [model.onnx]
@@ -140,6 +170,29 @@ aletheia_cli <input_folder> [output_folder] [model.onnx]
 aletheia_cli --help
 aletheia_cli --version
 ```
+Full CLI options:
+- `-o, --output` — output directory/file
+- `-m, --model` — ONNX model path
+- `-f, --format` — png, jpg or webp
+- `-j, --jobs` — parallel images (1 = sequential)
+- `--quality N` — JPEG/WebP quality (1-100)
+- `--png-compression N` — PNG compression (0-9)
+- `--threshold N` — alpha threshold (0-255)
+- `--clean-noise` — make pixels below alpha threshold transparent
+- `--refine-intensity N` — edge refinement intensity (0-100)
+- `--sticker` / `--sticker-width N` / `--sticker-color #RRGGBB` — sticker outline
+- `--shadow` / `--shadow-blur` / `--shadow-offset-x` / `--shadow-offset-y` / `--shadow-opacity` — drop shadow
+- `--background #RRGGBB` — solid output background
+- `--resize W[×H]` — final size
+- `--rotate N` — 0, 90, 180 or 270 degrees
+- `--crop x,y,w,h` — normalized crop (0..1)
+- `--chroma-key #RRGGBB` — color removal instead of AI
+- `--chroma-tolerance N` — chroma key tolerance (0-100)
+- `--chroma-contiguous` — remove only border-connected color
+- `--chroma-soft-edges` — disable hard Pixel Art edges
+- `--despill N` — chroma key despill (0-100)
+- `--feather N` — mask feather radius (0-5)
+- `--no-metadata` — do not copy EXIF/GPS/text metadata
 
 ---
 

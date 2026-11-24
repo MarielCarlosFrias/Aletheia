@@ -90,6 +90,7 @@ void InferenceWorker::start(const QImage& image,
                             const QString& modelPath,
                             quint64 generation)
 {
+    Q_UNUSED(options);
     // Mensagens traduzidas antes da thread: I18n le QSettings, que nao
     // deve ser usado fora da thread principal.
     const QString errModel = TR("modelo indisponível", "model unavailable");
@@ -104,7 +105,7 @@ void InferenceWorker::start(const QImage& image,
     cache_->cancelRequested.store(false);
 
     watcher_.setFuture(QtConcurrent::run(
-        [cache = cache_, img = image, options, modelPath, generation,
+        [cache = cache_, img = image, modelPath, generation,
          errModel, errOnnx, errGeneric, errUnknown, errCancelled]()
             -> InferenceResult {
             try {
@@ -125,8 +126,12 @@ void InferenceWorker::start(const QImage& image,
                     remover->requestCancel();
                     return { QImage(), errCancelled, generation };
                 }
-                return { ImagePostProcessor::apply(
-                             remover->removeBackground(img), options),
+                // A inferencia devolve apenas a mascara alfa. Os efeitos
+                // e a geometria de exportacao sao aplicados uma unica
+                // vez, no fluxo de guardar/copiar; caso contrario seriam
+                // duplicados (sticker/sombra) ou applied twice (rotate,
+                // resize e crop).
+                return { remover->removeBackground(img),
                          QString(), generation };
             } catch (const Ort::Exception& e) {
                 return { QImage(),

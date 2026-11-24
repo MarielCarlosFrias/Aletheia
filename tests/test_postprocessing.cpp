@@ -1,4 +1,5 @@
 #include <QImage>
+#include <QImageWriter>
 #include <iostream>
 
 #include "imagepostprocessor.h"
@@ -190,6 +191,135 @@ int main()
         || qAlpha(globalResult.pixel(5, 5)) != 255
         || qAlpha(globalResult.pixel(10, 10)) != 0) {
         std::cerr << "FAIL: removeByColor global" << std::endl;
+        return 1;
+    }
+
+    // Teste de applyGeometry: recorte normalizado.
+    ProcessingOptions cropOpts;
+    cropOpts.hasCrop = true;
+    cropOpts.cropRect = QRectF(0.25, 0.25, 0.5, 0.5);
+    QImage cropSrc(40, 40, QImage::Format_RGBA8888);
+    cropSrc.fill(qRgba(255, 0, 0, 255));
+    const QImage geometryCropped = ImagePostProcessor::applyGeometry(cropSrc, cropOpts);
+    if (geometryCropped.size() != QSize(20, 20)) {
+        std::cerr << "FAIL: applyGeometry crop size expected 20x20, got "
+                  << geometryCropped.width() << "x" << geometryCropped.height() << std::endl;
+        return 1;
+    }
+
+    // Teste de applyGeometry: rotacao 180.
+    ProcessingOptions rotateOpts;
+    rotateOpts.rotationDegrees = 180;
+    QImage rotateSrc(20, 10, QImage::Format_RGBA8888);
+    rotateSrc.fill(Qt::transparent);
+    rotateSrc.setPixel(5, 2, qRgba(255, 255, 255, 255));
+    const QImage rotated = ImagePostProcessor::applyGeometry(rotateSrc, rotateOpts);
+    // (5,2) com rotacao 180 em 20x10 -> (14,7)
+    if (rotated.pixelColor(14, 7) != QColor(255, 255, 255, 255)) {
+        std::cerr << "FAIL: applyGeometry rotate 180 moved pixel incorrectly"
+                  << std::endl;
+        return 1;
+    }
+
+    // Teste de applyGeometry: redimensionamento para largura fixa.
+    ProcessingOptions resizeOpts;
+    resizeOpts.resizeWidth = 10;
+    QImage resizeSrc(20, 20, QImage::Format_RGBA8888);
+    resizeSrc.fill(Qt::transparent);
+    const QImage resized = ImagePostProcessor::applyGeometry(resizeSrc, resizeOpts);
+    if (resized.size() != QSize(10, 10)) {
+        std::cerr << "FAIL: applyGeometry resize expected 10x10, got "
+                  << resized.width() << "x" << resized.height() << std::endl;
+        return 1;
+    }
+
+    // Imagem totalmente transparente, usada para testar saida JPEG/PNG/WebP.
+    QImage jpegSrc(2, 2, QImage::Format_RGBA8888);
+    jpegSrc.fill(qRgba(0, 0, 0, 0));
+
+    // Teste de saveImage: JPEG sem alfa compoe sobre branco.
+    if (QImageWriter::supportedImageFormats().contains("jpeg")) {
+        ProcessingOptions jpegOpts;
+        jpegOpts.outputFormat = "jpg";
+        jpegOpts.jpegQuality = 80;
+        QString tmpJpeg = QStringLiteral("/tmp/test_postprocessing_jpeg.jpg");
+        QString jpegError;
+        if (!ImagePostProcessor::saveImage(jpegSrc, tmpJpeg, jpegOpts,
+                                           QString(), &jpegError)) {
+            std::cerr << "FAIL: saveImage JPEG: " << jpegError.toStdString()
+                      << std::endl;
+            return 1;
+        }
+        QImage jpegRead(tmpJpeg);
+        if (jpegRead.isNull()) {
+            std::cerr << "FAIL: saveImage JPEG output nao pode ser lido"
+                      << std::endl;
+            return 1;
+        }
+        // Fundo transparente deve virar branco no JPEG.
+        const QRgb jpegPixel = jpegRead.pixel(0, 0);
+        if (qRed(jpegPixel) < 250 || qGreen(jpegPixel) < 250
+            || qBlue(jpegPixel) < 250) {
+            std::cerr << "FAIL: saveImage JPEG fundo nao e branco: "
+                      << qRed(jpegPixel) << "," << qGreen(jpegPixel) << ","
+                      << qBlue(jpegPixel) << std::endl;
+            return 1;
+        }
+    }
+
+    // Teste de saveImage: qualidade WebP (apenas se o plugin estiver instalado).
+    if (QImageWriter::supportedImageFormats().contains("webp")) {
+        ProcessingOptions webpOpts;
+        webpOpts.outputFormat = "webp";
+        webpOpts.webpQuality = 50;
+        QString tmpWebp = QStringLiteral("/tmp/test_postprocessing.webp");
+        QString webpError;
+        if (!ImagePostProcessor::saveImage(jpegSrc, tmpWebp, webpOpts,
+                                           QString(), &webpError)) {
+            std::cerr << "FAIL: saveImage WebP: " << webpError.toStdString()
+                      << std::endl;
+            return 1;
+        }
+    }
+
+    // Teste de saveImage: PNG compressao definida.
+    ProcessingOptions pngOpts;
+    pngOpts.outputFormat = "png";
+    pngOpts.pngCompression = 9;
+    QString tmpPng = QStringLiteral("/tmp/test_postprocessing.png");
+    QString pngError;
+    if (!ImagePostProcessor::saveImage(jpegSrc, tmpPng, pngOpts,
+                                       QString(), &pngError)) {
+        std::cerr << "FAIL: saveImage PNG: " << pngError.toStdString()
+                  << std::endl;
+        return 1;
+    }
+
+    // Teste de removeByColor com despill: fundo magenta + centro magenta-claro,
+    // despill reduz os canais dominantes (R e B) nos pixeis de borda.
+    QImage despillSrc(5, 5, QImage::Format_RGBA8888);
+    despillSrc.fill(qRgba(255, 0, 255, 255)); // magenta
+    for (int y = 1; y <= 3; ++y) {
+        for (int x = 1; x <= 3; ++x) {
+            despillSrc.setPixel(x, y, qRgba(200, 50, 200, 255)); // magenta claro
+        }
+    }
+    ProcessingOptions despillOpts;
+    despillOpts.chromaKeyColor = QColor(255, 0, 255);
+    despillOpts.chromaKeyTolerance = 100;
+    despillOpts.chromaDespill = 1.0f;
+    const QImage despillResult =
+        ImagePostProcessor::removeByColor(despillSrc, despillOpts.chromaKeyColor,
+                                          despillOpts.chromaKeyTolerance,
+                                          false, true,
+                                          despillOpts.chromaDespill,
+                                          despillOpts.chromaFeather);
+    // O pixel central deve ter R e B reduzidos pelo despill da cor-chave magenta.
+    const QRgb centerPixel = despillResult.pixel(2, 2);
+    if (qRed(centerPixel) >= 128 || qBlue(centerPixel) >= 128) {
+        std::cerr << "FAIL: despill nao reduziu canais R/B: "
+                  << qRed(centerPixel) << "," << qGreen(centerPixel) << ","
+                  << qBlue(centerPixel) << std::endl;
         return 1;
     }
 

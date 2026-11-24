@@ -21,6 +21,7 @@ class QPlainTextEdit;
 class QComboBox;
 class QCheckBox;
 class QSpinBox;
+class QDoubleSpinBox;
 class QTabWidget;
 class QMenu;
 class QResizeEvent;
@@ -85,6 +86,7 @@ private slots:
     void startDragOut();
     void removalMethodChanged(int index);
     void pickKeyColor();
+    void pickStickerColor();
     void autoDetectKeyColor();
     void removeByColor();
     void onColorRemovalFinished();
@@ -98,6 +100,7 @@ private:
     void addToRecentFiles(const QString& path);
     void rebuildRecentMenu();
     void updateKeyColorButton();
+    void updateStickerColorButton();
     void setPreviewZoom(int percent);
     void zoomAt(int percent, const QPoint& globalPos);
     void updatePreviewZoom();
@@ -151,9 +154,16 @@ private:
     QSpinBox* brushRadiusSpin_;
     QSpinBox* noiseThresholdSpin_;
     QCheckBox* refineCheckBox_;
+    QDoubleSpinBox* edgeRefinementSpin_;
     QCheckBox* noiseCheckBox_;
     QCheckBox* stickerCheckBox_;
+    QSpinBox* stickerWidthSpin_;
+    QPushButton* stickerColorButton_;
     QCheckBox* shadowCheckBox_;
+    QSpinBox* shadowBlurSpin_;
+    QSpinBox* shadowOffsetXSpin_;
+    QSpinBox* shadowOffsetYSpin_;
+    QDoubleSpinBox* shadowOpacitySpin_;
     QComboBox* removalMethodCombo_;
     QWidget* aiRemovalWidget_;
     QWidget* colorRemovalWidget_;
@@ -162,10 +172,18 @@ private:
     QSpinBox* colorToleranceSpin_;
     QCheckBox* colorContiguousCheckBox_;
     QCheckBox* colorPixelArtCheckBox_;
+    QDoubleSpinBox* chromaDespillSpin_;
+    QSpinBox* chromaFeatherSpin_;
     QPushButton* btnRemoveByColor_;
     QColor keyColor_ = QColor(255, 0, 255);
     QString customBgImagePath_;
     QComboBox* saveFormatCombo_;
+    QSpinBox* exportQualitySpin_;
+    QSpinBox* pngCompressionSpin_;
+    QCheckBox* preserveMetadataCheckBox_;
+    QSpinBox* outputWidthSpin_;
+    QSpinBox* outputHeightSpin_;
+    QComboBox* rotationCombo_;
     QProgressBar* progressBar_;
     QPlainTextEdit* logEdit_;
     MaskEditCanvas* maskEditCanvas_;
@@ -181,6 +199,7 @@ private:
     // fecho e concluido quando o watcher correspondente terminar.
     bool closeRequested_ = false;
     QColor customBgColor_;
+    QColor stickerColor_ = Qt::white;
     bool showMaskPreview_ = false;
     QAction *actionShowMaskPreview_ = nullptr;
 
@@ -203,17 +222,19 @@ private:
     // Remocao por cor: a inundacao de regiao pode demorar segundos
     // numa foto grande, por isso corre na thread de trabalho.
     QFutureWatcher<QImage> colorWatcher_;
-    // Pós-processamento do save (sticker/sombra) tambem pode demorar
-    // em fotos grandes; corre na thread de trabalho e o ficheiro e
-    // escrito quando termina.
-    QFutureWatcher<QImage> saveWatcher_;
+    // Pós-processamento e escrita do save (sticker/sombra, geometria,
+    // qualidade e metadados) correm na thread de trabalho para não
+    // bloquear a interface com imagens grandes.
+    struct SaveOutcome {
+        bool success = false;
+        QString error;
+    };
+    QFutureWatcher<SaveOutcome> saveWatcher_;
     QString pendingSavePath_;
-    QByteArray pendingSaveFormat_;
-    ProcessingOptions pendingSaveOptions_;
 
     // Watcher generico para copy/drag-out: o pós-processamento pesado
     // (sticker/sombra) tambem corre fora da thread da UI.
-    enum class PendingAction { None, CopyToClipboard, DragOut };
+    enum class PendingAction { None, CopyToClipboard, CopyTransparent, DragOut };
     QFutureWatcher<QImage> postProcessWatcher_;
     PendingAction pendingAction_ = PendingAction::None;
     ProcessingOptions pendingPostOptions_;

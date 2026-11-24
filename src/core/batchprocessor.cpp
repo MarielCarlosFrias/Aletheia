@@ -110,15 +110,13 @@ BatchProcessor::Result BatchProcessor::processDirectory(
 
     try {
         // Carrega o modelo uma vez (deteta falhas fatais antes de
-        // processar). A sessao e reutilizada por todas as imagens: evita
-        // re-hashear o modelo e recarrega-lo a cada ficheiro.
-        auto modelCheck = BackgroundRemover::get(options_.modelPath);
-
-        const QString format = writerFormat;
-        // PNG e WebP suportam canal alfa; JPEG nao.
-        const bool formatHasAlpha =
-            (writerFormat == QLatin1String("png")
-             || writerFormat == QLatin1String("webp"));
+        // processar), exceto no modo Chroma Key que nao usa ONNX. A
+        // sessao e reutilizada por todas as imagens: evita re-hashear o
+        // modelo e recarrega-lo a cada ficheiro.
+        std::shared_ptr<BackgroundRemover> modelCheck;
+        if (!options_.useColorRemoval) {
+            modelCheck = BackgroundRemover::get(options_.modelPath);
+        }
 
         const int concurrency = std::max(1, options_.maxConcurrentImages);
         QMutex resultMutex;
@@ -155,29 +153,29 @@ BatchProcessor::Result BatchProcessor::processDirectory(
                         // Reutiliza a sessao carregada uma unica vez:
                         // chamar get() por imagem re-hasheava o modelo
                         // inteiro (176 MB) a cada ficheiro.
-                        const std::shared_ptr<BackgroundRemover> remover =
-                            modelCheck;
-                        QImage processed = ImagePostProcessor::apply(remover->removeBackground(img), options_);
-                        // JPEG nao tem canal alfa: ao gravar, o Qt
-                        // descartaria o alfa e a area removida ficaria
-                        // com a cor original do fundo. Compomos sobre
-                        // branco, como a GUI faz.
-                        if (!formatHasAlpha && !processed.isNull()) {
-                            processed = ImagePostProcessor::compositeBackground(
-                                processed, Qt::white);
+                        QImage cutout;
+                        if (options_.useColorRemoval) {
+                            cutout = ImagePostProcessor::removeByColor(
+                                img, options_.chromaKeyColor,
+                                options_.chromaKeyTolerance,
+                                options_.chromaKeyContiguous,
+                                options_.chromaKeyPreservePixelArt,
+                                options_.chromaDespill,
+                                options_.chromaFeather);
+                        } else {
+                            cutout = modelCheck->removeBackground(img);
                         }
-                        QImageWriter writer(entry.outputPath, format.toUtf8());
-                        if (format == "png" && options_.pngCompression >= 0) {
-                            writer.setCompression(options_.pngCompression);
-                        } else if (format == "jpg" || format == "jpeg") {
-                            writer.setQuality(options_.jpegQuality);
-                        } else if (format == "webp") {
-                            writer.setQuality(options_.webpQuality);
-                        }
-                        if (!writer.write(processed)) {
+                        QImage processed = ImagePostProcessor::apply(cutout, options_);
+                        QString saveError;
+                        if (!ImagePostProcessor::saveImage(
+                                processed, entry.outputPath, options_,
+                                entry.inputPath, &saveError)) {
                             QMutexLocker lock(&resultMutex);
                             result.errors++;
-                            const QString err = I18n::tr("Falha ao salvar a imagem", "Failed to save the image");
+                            const QString err = I18n::tr("Falha ao salvar a imagem", "Failed to save the image")
+                                + (saveError.isEmpty()
+                                       ? QString()
+                                       : QStringLiteral(": ") + saveError);
                             result.errorMessages.append("[ERRO] " + file + ": " + err);
                             QMutexLocker clog(&coutMutex);
                             std::cerr << "[ERRO] " << file.toStdString() << ": " << err.toStdString() << std::endl;
@@ -256,6 +254,135 @@ BatchProcessor::Result BatchProcessor::processDirectory(
         const int processed = result.ok + result.errors;
         if (processed < result.total)
             result.errors += result.total - processed;
+    }
+
+    return result;
+}
+
+BatchProcessor::Result BatchProcessor::processFile(
+    const QString& inputPath,
+    const QString& outputPath)
+{
+    Result result;
+    result.total = 1;
+
+    const QFileInfo inputInfo(inputPath);
+    if (!inputInfo.exists() || !inputInfo.isFile()) {
+        std::cerr << I18n::tr("Ficheiro de entrada inexistente: ",
+                              "Input file does not exist: ").toStdString()
+                  << inputPath.toStdString() << std::endl;
+        result.fatal = true;
+        return result;
+    }
+
+    const QString requested = options_.outputFormat.trimmed().toLower();
+    QString writerFormat;
+    if (requested.isEmpty() || requested == "png") {
+        writerFormat = QStringLiteral("png");
+    } else if (requested == "jpg" || requested == "jpeg") {
+        writerFormat = QStringLiteral("jpeg");
+    } else if (requested == "webp") {
+        writerFormat = QStringLiteral("webp");
+    } else {
+        std::cerr << I18n::tr("Formato de saida invalido: ",
+                              "Invalid output format: ").toStdString()
+                  << requested.toStdString() << ". "
+                  << I18n::tr("Use png, jpg ou webp.",
+                              "Use png, jpg or webp.").toStdString()
+                  << std::endl;
+        result.fatal = true;
+        return result;
+    }
+    if (!QImageWriter::supportedImageFormats().contains(
+            writerFormat.toUtf8())) {
+        std::cerr << I18n::tr(
+            "Este build nao suporta o formato pedido: ",
+            "This build does not support the requested format: ").toStdString()
+                  << requested.toStdString() << std::endl;
+        result.fatal = true;
+        return result;
+    }
+
+    const QFileInfo outputInfo(outputPath);
+    const QString outputDir = outputInfo.absolutePath();
+    if (!QDir(outputDir).exists() && !QDir(outputDir).mkpath(".")) {
+        std::cerr << I18n::tr("Nao foi possivel criar diretorio de saida: ",
+                              "Could not create output directory: ").toStdString()
+                  << outputDir.toStdString() << std::endl;
+        result.fatal = true;
+        return result;
+    }
+
+    try {
+        if (cancelFlag_ && cancelFlag_->load()) {
+            result.cancelled = true;
+            result.errors = 1;
+            return result;
+        }
+
+        const QImage image =
+            ImagePostProcessor::loadImageExif(inputPath);
+        if (image.isNull()) {
+            QString error = I18n::tr("Falha ao carregar a imagem",
+                                    "Failed to load the image");
+            QString hint;
+            if (!ImagePostProcessor::isFormatSupported(inputPath, &hint)
+                && !hint.isEmpty()) {
+                error += QStringLiteral(" (%1)").arg(hint);
+            }
+            result.errors = 1;
+            result.errorMessages.append(error);
+            std::cerr << error.toStdString() << std::endl;
+            return result;
+        }
+
+        QImage cutout;
+        if (options_.useColorRemoval) {
+            cutout = ImagePostProcessor::removeByColor(
+                image, options_.chromaKeyColor,
+                options_.chromaKeyTolerance,
+                options_.chromaKeyContiguous,
+                options_.chromaKeyPreservePixelArt,
+                options_.chromaDespill,
+                options_.chromaFeather);
+        } else {
+            const auto remover = BackgroundRemover::get(options_.modelPath);
+            cutout = remover->removeBackground(image);
+        }
+
+        const QImage processed =
+            ImagePostProcessor::apply(cutout, options_);
+        QString saveError;
+        if (!ImagePostProcessor::saveImage(
+                processed, outputPath, options_, inputPath, &saveError)) {
+            const QString error = I18n::tr(
+                "Falha ao salvar a imagem", "Failed to save the image")
+                + (saveError.isEmpty()
+                       ? QString()
+                       : QStringLiteral(": ") + saveError);
+            result.errors = 1;
+            result.errorMessages.append(error);
+            std::cerr << error.toStdString() << std::endl;
+            return result;
+        }
+
+        result.ok = 1;
+        std::cout << inputInfo.fileName().toStdString() << " -> "
+                  << outputInfo.fileName().toStdString() << std::endl;
+    } catch (const std::exception& e) {
+        result.errors = 1;
+        const QString message = I18n::tr(
+            "Falha no modelo: %1", "Model failure: %1")
+            .arg(QString::fromUtf8(e.what()));
+        result.errorMessages.append(message);
+        std::cerr << message.toStdString() << std::endl;
+    } catch (...) {
+        result.errors = 1;
+        const QString message = I18n::tr(
+            "Falha desconhecida no modelo.",
+            "Unknown model failure.");
+        result.errorMessages.append(message);
+        std::cerr << message.toStdString() << std::endl;
     }
 
     return result;

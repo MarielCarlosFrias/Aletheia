@@ -7,6 +7,7 @@ class QComboBox;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
+class QDoubleSpinBox;
 class QCheckBox;
 
 // Agrupa os widgets do painel de opcoes (inspector) para que a sua
@@ -28,16 +29,31 @@ struct OptionWidgets {
     QSpinBox* colorToleranceSpin = nullptr;
     QCheckBox* colorContiguousCheckBox = nullptr;
     QCheckBox* colorPixelArtCheckBox = nullptr;
+    QDoubleSpinBox* chromaDespillSpin = nullptr;
+    QSpinBox* chromaFeatherSpin = nullptr;
     QPushButton* btnRemoveByColor = nullptr;
     // Seccao "Ajustes de saida"
     QComboBox* presetCombo = nullptr;
     QComboBox* bgColorCombo = nullptr;
     QComboBox* saveFormatCombo = nullptr;
+    QSpinBox* exportQualitySpin = nullptr;
+    QSpinBox* pngCompressionSpin = nullptr;
+    QCheckBox* preserveMetadataCheckBox = nullptr;
+    QSpinBox* outputWidthSpin = nullptr;
+    QSpinBox* outputHeightSpin = nullptr;
+    QComboBox* rotationCombo = nullptr;
     QCheckBox* refineCheckBox = nullptr;
+    QDoubleSpinBox* edgeRefinementSpin = nullptr;
     QCheckBox* noiseCheckBox = nullptr;
     QSpinBox* noiseThresholdSpin = nullptr;
     QCheckBox* stickerCheckBox = nullptr;
+    QSpinBox* stickerWidthSpin = nullptr;
+    QPushButton* stickerColorButton = nullptr;
     QCheckBox* shadowCheckBox = nullptr;
+    QSpinBox* shadowBlurSpin = nullptr;
+    QSpinBox* shadowOffsetXSpin = nullptr;
+    QSpinBox* shadowOffsetYSpin = nullptr;
+    QDoubleSpinBox* shadowOpacitySpin = nullptr;
     // Seccao "Acoes e Retoque"
     QComboBox* brushModeCombo = nullptr;
     QSpinBox* brushRadiusSpin = nullptr;

@@ -1,9 +1,14 @@
 #include "imagepostprocessor.h"
 
+#include <QColorSpace>
+#include <QFile>
 #include <QImageReader>
 #include <QImageWriter>
 #include <QPainter>
 #include <QFileInfo>
+#include <QSaveFile>
+#include <QHash>
+#include <QTransform>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -13,6 +18,333 @@
 // Todas as operacoes trabalham em Format_RGBA8888, cujo canal alfa
 // fica no byte 3 de cada pixel. O acesso por scanline evita
 // pixel()/setPixel() por pixel (lento em imagens grandes).
+
+namespace {
+
+quint16 readUint16(const QByteArray& data, qsizetype offset, bool littleEndian)
+{
+    if (offset < 0 || offset + 2 > data.size()) return 0;
+    const quint16 a = static_cast<quint8>(data.at(offset));
+    const quint16 b = static_cast<quint8>(data.at(offset + 1));
+    return littleEndian ? static_cast<quint16>(a | (b << 8))
+                         : static_cast<quint16>((a << 8) | b);
+}
+
+quint32 readUint32(const QByteArray& data, qsizetype offset, bool littleEndian)
+{
+    if (offset < 0 || offset + 4 > data.size()) return 0;
+    const quint32 a = static_cast<quint8>(data.at(offset));
+    const quint32 b = static_cast<quint8>(data.at(offset + 1));
+    const quint32 c = static_cast<quint8>(data.at(offset + 2));
+    const quint32 d = static_cast<quint8>(data.at(offset + 3));
+    if (littleEndian) return a | (b << 8) | (c << 16) | (d << 24);
+    return (a << 24) | (b << 16) | (c << 8) | d;
+}
+
+void writeUint16(QByteArray& data, qsizetype offset, quint16 value,
+                 bool littleEndian)
+{
+    if (offset < 0 || offset + 2 > data.size()) return;
+    const quint8 a = static_cast<quint8>(value & 0xff);
+    const quint8 b = static_cast<quint8>((value >> 8) & 0xff);
+    if (littleEndian) {
+        data[offset] = static_cast<char>(a);
+        data[offset + 1] = static_cast<char>(b);
+    } else {
+        data[offset] = static_cast<char>(b);
+        data[offset + 1] = static_cast<char>(a);
+    }
+}
+
+void writeUint32(QByteArray& data, qsizetype offset, quint32 value,
+                 bool littleEndian)
+{
+    if (offset < 0 || offset + 4 > data.size()) return;
+    const quint8 a = static_cast<quint8>(value & 0xff);
+    const quint8 b = static_cast<quint8>((value >> 8) & 0xff);
+    const quint8 c = static_cast<quint8>((value >> 16) & 0xff);
+    const quint8 d = static_cast<quint8>((value >> 24) & 0xff);
+    if (littleEndian) {
+        data[offset] = static_cast<char>(a);
+        data[offset + 1] = static_cast<char>(b);
+        data[offset + 2] = static_cast<char>(c);
+        data[offset + 3] = static_cast<char>(d);
+    } else {
+        data[offset] = static_cast<char>(d);
+        data[offset + 1] = static_cast<char>(c);
+        data[offset + 2] = static_cast<char>(b);
+        data[offset + 3] = static_cast<char>(a);
+    }
+}
+
+// Normaliza a orientacao EXIF para 1 (top-left). Os pixels ja foram
+// corrigidos por QImageReader::setAutoTransform(true); manter a tag
+// original faria o visualizador rodar a imagem uma segunda vez.
+bool normalizeExifOrientation(QByteArray& tiff)
+{
+    if (tiff.size() < 8) return false;
+    bool littleEndian = false;
+    if (tiff.at(0) == 'I' && tiff.at(1) == 'I') {
+        littleEndian = true;
+    } else if (tiff.at(0) == 'M' && tiff.at(1) == 'M') {
+        littleEndian = false;
+    } else {
+        return false;
+    }
+    if (readUint16(tiff, 2, littleEndian) != 42) return false;
+
+    const qsizetype ifdOffset = static_cast<qsizetype>(
+        readUint32(tiff, 4, littleEndian));
+    if (ifdOffset <= 0 || ifdOffset + 2 > tiff.size()) return false;
+    const quint16 entries = readUint16(tiff, ifdOffset, littleEndian);
+    bool found = false;
+
+    for (quint16 i = 0; i < entries; ++i) {
+        const qsizetype entry = ifdOffset + 2 + static_cast<qsizetype>(i) * 12;
+        if (entry + 12 > tiff.size()) break;
+        if (readUint16(tiff, entry, littleEndian) != 0x0112) continue;
+
+        const quint16 type = readUint16(tiff, entry + 2, littleEndian);
+        const quint32 count = readUint32(tiff, entry + 4, littleEndian);
+        if (type == 3 && count >= 1) {
+            writeUint16(tiff, entry + 8, 1, littleEndian);
+            found = true;
+        } else if (type == 4 && count >= 1) {
+            writeUint32(tiff, entry + 8, 1, littleEndian);
+            found = true;
+        }
+    }
+    return found;
+}
+
+void setExifDimensionValue(QByteArray& tiff, qsizetype entry,
+                            bool littleEndian, int value)
+{
+    const quint16 type = readUint16(tiff, entry + 2, littleEndian);
+    if (type == 3) {
+        writeUint16(tiff, entry + 8, static_cast<quint16>(value), littleEndian);
+    } else if (type == 4) {
+        writeUint32(tiff, entry + 8, static_cast<quint32>(value), littleEndian);
+    }
+}
+
+// Atualiza as dimensoes existentes para o tamanho final. As tags nao
+// sao inventadas quando faltam: e preferivel nao ter PixelXDimension
+// do que ter um valor obsoleto apos um crop/resize.
+void updateExifDimensions(QByteArray& tiff, int width, int height)
+{
+    if (tiff.size() < 8 || width <= 0 || height <= 0) return;
+    const bool littleEndian = tiff.at(0) == 'I' && tiff.at(1) == 'I';
+    if (!littleEndian && !(tiff.at(0) == 'M' && tiff.at(1) == 'M')) return;
+    if (readUint16(tiff, 2, littleEndian) != 42) return;
+
+    const qsizetype ifdOffset = static_cast<qsizetype>(
+        readUint32(tiff, 4, littleEndian));
+    if (ifdOffset <= 0 || ifdOffset + 2 > tiff.size()) return;
+    const quint16 entries = readUint16(tiff, ifdOffset, littleEndian);
+    qsizetype exifIfdOffset = 0;
+
+    for (quint16 i = 0; i < entries; ++i) {
+        const qsizetype entry = ifdOffset + 2 + static_cast<qsizetype>(i) * 12;
+        if (entry + 12 > tiff.size()) break;
+        const quint16 tag = readUint16(tiff, entry, littleEndian);
+        if (tag == 0x0100) {
+            setExifDimensionValue(tiff, entry, littleEndian, width);
+        } else if (tag == 0x0101) {
+            setExifDimensionValue(tiff, entry, littleEndian, height);
+        } else if (tag == 0x8769) {
+            exifIfdOffset = static_cast<qsizetype>(
+                readUint32(tiff, entry + 8, littleEndian));
+        }
+    }
+
+    if (exifIfdOffset <= 0 || exifIfdOffset + 2 > tiff.size()) return;
+    const quint16 exifEntries =
+        readUint16(tiff, exifIfdOffset, littleEndian);
+    for (quint16 i = 0; i < exifEntries; ++i) {
+        const qsizetype entry =
+            exifIfdOffset + 2 + static_cast<qsizetype>(i) * 12;
+        if (entry + 12 > tiff.size()) break;
+        const quint16 tag = readUint16(tiff, entry, littleEndian);
+        if (tag == 0xa002) {
+            setExifDimensionValue(tiff, entry, littleEndian, width);
+        } else if (tag == 0xa003) {
+            setExifDimensionValue(tiff, entry, littleEndian, height);
+        }
+    }
+}
+
+QByteArray extractJpegExif(const QByteArray& jpeg)
+{
+    if (jpeg.size() < 4
+        || static_cast<quint8>(jpeg.at(0)) != 0xff
+        || static_cast<quint8>(jpeg.at(1)) != 0xd8) {
+        return {};
+    }
+
+    qsizetype pos = 2;
+    while (pos + 4 <= jpeg.size()) {
+        if (static_cast<quint8>(jpeg.at(pos)) != 0xff) {
+            ++pos;
+            continue;
+        }
+        const quint8 marker = static_cast<quint8>(jpeg.at(pos + 1));
+        if (marker == 0xda || marker == 0xd9) break; // SOS / EOI
+        if (marker == 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+            pos += 2;
+            continue;
+        }
+        const quint16 length = readUint16(jpeg, pos + 2, false);
+        if (length < 2) break;
+        const qsizetype payloadStart = pos + 4;
+        const qsizetype payloadLength = static_cast<qsizetype>(length) - 2;
+        if (payloadStart + payloadLength > jpeg.size()) break;
+        if (marker == 0xe1) {
+            const QByteArray payload = jpeg.mid(payloadStart, payloadLength);
+            if (payload.startsWith(QByteArray("Exif\0\0", 6)))
+                return payload;
+        }
+        pos = payloadStart + payloadLength;
+    }
+    return {};
+}
+
+QByteArray extractPngExif(const QByteArray& png)
+{
+    static const QByteArray signature("\x89PNG\r\n\x1a\n", 8);
+    if (!png.startsWith(signature)) return {};
+
+    qsizetype pos = signature.size();
+    while (pos + 12 <= png.size()) {
+        const quint32 length = readUint32(png, pos, false);
+        const QByteArray type = png.mid(pos + 4, 4);
+        const qsizetype dataStart = pos + 8;
+        const qsizetype dataEnd = dataStart + static_cast<qsizetype>(length);
+        if (dataEnd + 4 > png.size()) break;
+        if (type == QByteArrayLiteral("eXIf")) {
+            return png.mid(dataStart, static_cast<qsizetype>(length));
+        }
+        if (type == QByteArrayLiteral("IDAT")) break;
+        pos = dataEnd + 4;
+    }
+    return {};
+}
+
+quint32 pngChunkCrc(const QByteArray& typeAndData)
+{
+    quint32 crc = 0xffffffffu;
+    for (const char byte : typeAndData) {
+        crc ^= static_cast<quint8>(byte);
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc & 1u) ? (crc >> 1) ^ 0xedb88320u : (crc >> 1);
+        }
+    }
+    return crc ^ 0xffffffffu;
+}
+
+QByteArray makePngChunk(const QByteArray& type, const QByteArray& payload)
+{
+    QByteArray chunk;
+    chunk.reserve(12 + payload.size());
+    const quint32 length = static_cast<quint32>(payload.size());
+    chunk.append(static_cast<char>((length >> 24) & 0xff));
+    chunk.append(static_cast<char>((length >> 16) & 0xff));
+    chunk.append(static_cast<char>((length >> 8) & 0xff));
+    chunk.append(static_cast<char>(length & 0xff));
+    chunk.append(type);
+    chunk.append(payload);
+    const quint32 crc = pngChunkCrc(type + payload);
+    chunk.append(static_cast<char>((crc >> 24) & 0xff));
+    chunk.append(static_cast<char>((crc >> 16) & 0xff));
+    chunk.append(static_cast<char>((crc >> 8) & 0xff));
+    chunk.append(static_cast<char>(crc & 0xff));
+    return chunk;
+}
+
+bool writeBinaryFile(const QString& path, const QByteArray& data)
+{
+    // Escrita atomica: se a actualizacao do EXIF falhar, o JPEG/PNG
+    // valido que o writer ja produziu permanece intacto.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) return false;
+    if (file.write(data) != data.size()) {
+        file.cancelWriting();
+        return false;
+    }
+    return file.commit();
+}
+
+bool injectJpegExif(const QString& outputPath, const QByteArray& sourceTiff,
+                    int width, int height)
+{
+    if (sourceTiff.isEmpty()) return false;
+    QFile outputFile(outputPath);
+    if (!outputFile.open(QIODevice::ReadOnly)) return false;
+    QByteArray output = outputFile.readAll();
+    outputFile.close();
+    if (output.size() < 4
+        || static_cast<quint8>(output.at(0)) != 0xff
+        || static_cast<quint8>(output.at(1)) != 0xd8) {
+        return false;
+    }
+    if (!extractJpegExif(output).isEmpty()) return true;
+
+    QByteArray tiff = sourceTiff;
+    normalizeExifOrientation(tiff);
+    updateExifDimensions(tiff, width, height);
+    QByteArray payload("Exif\0\0", 6);
+    payload.append(tiff);
+    if (payload.size() + 2 > 65535) return false;
+
+    QByteArray segment;
+    segment.reserve(payload.size() + 4);
+    segment.append(static_cast<char>(0xff));
+    segment.append(static_cast<char>(0xe1));
+    const quint16 length = static_cast<quint16>(payload.size() + 2);
+    segment.append(static_cast<char>((length >> 8) & 0xff));
+    segment.append(static_cast<char>(length & 0xff));
+    segment.append(payload);
+    output.insert(2, segment);
+    return writeBinaryFile(outputPath, output);
+}
+
+bool injectPngExif(const QString& outputPath, const QByteArray& sourceTiff,
+                   int width, int height)
+{
+    if (sourceTiff.isEmpty()) return false;
+    QFile outputFile(outputPath);
+    if (!outputFile.open(QIODevice::ReadOnly)) return false;
+    QByteArray output = outputFile.readAll();
+    outputFile.close();
+    static const QByteArray signature("\x89PNG\r\n\x1a\n", 8);
+    if (!output.startsWith(signature)) return false;
+    if (!extractPngExif(output).isEmpty()) return true;
+
+    QByteArray tiff = sourceTiff;
+    normalizeExifOrientation(tiff);
+    updateExifDimensions(tiff, width, height);
+
+    qsizetype insertAt = -1;
+    qsizetype pos = signature.size();
+    while (pos + 12 <= output.size()) {
+        const quint32 length = readUint32(output, pos, false);
+        const QByteArray type = output.mid(pos + 4, 4);
+        const qsizetype dataEnd = pos + 8 + static_cast<qsizetype>(length);
+        if (dataEnd + 4 > output.size()) break;
+        if (type == QByteArrayLiteral("IHDR")) {
+            insertAt = dataEnd + 4;
+            break;
+        }
+        if (type == QByteArrayLiteral("IDAT")) break;
+        pos = dataEnd + 4;
+    }
+    if (insertAt < 0) return false;
+
+    output.insert(insertAt, makePngChunk(QByteArrayLiteral("eXIf"), tiff));
+    return writeBinaryFile(outputPath, output);
+}
+
+} // namespace
 
 QImage ImagePostProcessor::apply(const QImage& input,
                                  const ProcessingOptions& options,
@@ -43,6 +375,10 @@ QImage ImagePostProcessor::apply(const QImage& input,
     } else if (options.backgroundStyle == ProcessingOptions::BgSolidColor || options.backgroundColor.isValid()) {
         result = compositeBackground(result, options.backgroundColor);
     }
+
+    // Geometria de saida por ultimo: recorte, rotacao e tamanho final
+    // aplicam-se a imagem ja composta (sombra/contorno/fundo incluidos).
+    result = applyGeometry(result, options);
 
     return result;
 }
@@ -592,13 +928,16 @@ QImage ImagePostProcessor::removeByColor(const QImage& input,
                                         const QColor& targetColor,
                                         int tolerance,
                                         bool contiguous,
-                                        bool preservePixelArt)
+                                        bool preservePixelArt,
+                                        float despill,
+                                        int featherRadius)
 {
     if (input.isNull() || !targetColor.isValid()) return input.copy();
 
     QImage result = input.convertToFormat(QImage::Format_RGBA8888);
     const int w = result.width();
     const int h = result.height();
+    if (w <= 0 || h <= 0) return result;
 
     const int tr = targetColor.red();
     const int tg = targetColor.green();
@@ -628,23 +967,35 @@ QImage ImagePostProcessor::removeByColor(const QImage& input,
         return static_cast<int>(currentAlpha * t);
     };
 
+    // A mascara vive num buffer continuo: permite suavizar (feather) e
+    // decontaminar a cor (despill) sem tocar nos pixeis varias vezes.
+    std::vector<uchar> alpha(static_cast<size_t>(w) * static_cast<size_t>(h));
+    for (int y = 0; y < h; ++y) {
+        const uchar* row = result.constScanLine(y);
+        for (int x = 0; x < w; ++x) {
+            const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w)
+                               + static_cast<size_t>(x);
+            alpha[idx] = row[x * 4 + 3];
+        }
+    }
+
     if (!contiguous) {
         for (int y = 0; y < h; ++y) {
-            uchar* row = result.scanLine(y);
+            const uchar* row = result.constScanLine(y);
             for (int x = 0; x < w; ++x) {
-                const int r = row[x * 4 + 0];
-                const int g = row[x * 4 + 1];
-                const int b = row[x * 4 + 2];
-                const int a = row[x * 4 + 3];
-                row[x * 4 + 3] = static_cast<uchar>(calcAlpha(r, g, b, a));
+                const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w)
+                                   + static_cast<size_t>(x);
+                alpha[idx] = static_cast<uchar>(
+                    calcAlpha(row[x * 4 + 0], row[x * 4 + 1], row[x * 4 + 2],
+                              row[x * 4 + 3]));
             }
         }
     } else {
         // Inundacao por regiao: a pilha guarda o indice do pixel (4
         // bytes) em vez de um QPoint (8 bytes) - numa foto de 12 MP a
-        // diferenca e dezenas de MB de memoria, e o acesso as linhas
+        // diferenca e de dezenas de MB de memoria, e o acesso as linhas
         // fica mais rapido.
-        std::vector<uint8_t> visited(static_cast<size_t>(w * h), 0);
+        std::vector<uint8_t> visited(static_cast<size_t>(w) * static_cast<size_t>(h), 0);
         std::vector<uint32_t> stack;
         stack.reserve(static_cast<size_t>(w) * 4);
 
@@ -675,8 +1026,9 @@ QImage ImagePostProcessor::removeByColor(const QImage& input,
             const int x = static_cast<int>(idx % static_cast<uint32_t>(w));
             const int y = static_cast<int>(idx / static_cast<uint32_t>(w));
 
-            uchar* p = result.scanLine(y) + x * 4;
-            p[3] = static_cast<uchar>(calcAlpha(p[0], p[1], p[2], p[3]));
+            const uchar* p = result.constScanLine(y) + x * 4;
+            alpha[idx] = static_cast<uchar>(
+                calcAlpha(p[0], p[1], p[2], p[3]));
 
             tryPush(x + 1, y);
             tryPush(x - 1, y);
@@ -685,5 +1037,312 @@ QImage ImagePostProcessor::removeByColor(const QImage& input,
         }
     }
 
+    // Feather: desfoque em caixa separavel (horizontal + vertical) sobre
+    // o canal alfa. Raio 0 (omissao) nao altera nada.
+    const int radius = std::clamp(featherRadius, 0, 5);
+    if (radius > 0) {
+        std::vector<uint32_t> temp(alpha.size());
+        const int window = radius * 2 + 1;
+        // Horizontal.
+        for (int y = 0; y < h; ++y) {
+            const size_t rowStart = static_cast<size_t>(y) * static_cast<size_t>(w);
+            uint32_t sum = 0;
+            for (int x = -radius; x <= radius; ++x) {
+                sum += alpha[rowStart + static_cast<size_t>(std::clamp(x, 0, w - 1))];
+            }
+            for (int x = 0; x < w; ++x) {
+                temp[rowStart + static_cast<size_t>(x)] = sum / static_cast<uint32_t>(window);
+                const int add = std::clamp(x + radius + 1, 0, w - 1);
+                const int sub = std::clamp(x - radius, 0, w - 1);
+                sum += alpha[rowStart + static_cast<size_t>(add)];
+                sum -= alpha[rowStart + static_cast<size_t>(sub)];
+            }
+        }
+        // Vertical.
+        for (int x = 0; x < w; ++x) {
+            uint32_t sum = 0;
+            for (int y = -radius; y <= radius; ++y) {
+                sum += temp[static_cast<size_t>(std::clamp(y, 0, h - 1))
+                            * static_cast<size_t>(w) + static_cast<size_t>(x)];
+            }
+            for (int y = 0; y < h; ++y) {
+                const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w)
+                                   + static_cast<size_t>(x);
+                alpha[idx] = static_cast<uchar>(sum / static_cast<uint32_t>(window));
+                const int add = std::clamp(y + radius + 1, 0, h - 1);
+                const int sub = std::clamp(y - radius, 0, h - 1);
+                sum += temp[static_cast<size_t>(add) * static_cast<size_t>(w)
+                            + static_cast<size_t>(x)];
+                sum -= temp[static_cast<size_t>(sub) * static_cast<size_t>(w)
+                            + static_cast<size_t>(x)];
+            }
+        }
+    }
+
+    const float despillAmount = std::clamp(despill, 0.0f, 1.0f);
+    // Sem tolerancia, o despill usa uma janela de 50% da distancia RGB
+    // maxima: e onde live a contaminacao de uma borda antialiasada. Com
+    // tolerancia explicita, essa distancia define a janela.
+    const float despillRadius = tolerance <= 0
+        ? 0.50f * 441.67295593f : std::max(40.0f, maxDist);
+    const float despillRadiusSq = despillRadius * despillRadius;
+
+    // A cor-chave pode ter um canal dominante (verde, ciano, etc.) ou
+    // dois (magenta). A supressao do canal dominante e mais estavel
+    // que um unmix em RGB sem informacao de cobertura.
+    int keyOrder[3] = {0, 1, 2};
+    const int keyValues[3] = {tr, tg, tb};
+    std::sort(keyOrder, keyOrder + 3, [keyValues](int a, int b) {
+        return keyValues[a] > keyValues[b];
+    });
+    const bool singleDominant =
+        keyValues[keyOrder[0]] - keyValues[keyOrder[1]] >= 40;
+    const bool pairDominant = !singleDominant
+        && keyValues[keyOrder[1]] - keyValues[keyOrder[2]] >= 40;
+
+    for (int y = 0; y < h; ++y) {
+        uchar* row = result.scanLine(y);
+        for (int x = 0; x < w; ++x) {
+            const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(w)
+                               + static_cast<size_t>(x);
+            const int a = alpha[idx];
+            const size_t offset = static_cast<size_t>(x) * 4;
+
+            if (despillAmount > 0.0f && (singleDominant || pairDominant)) {
+                const float dr = static_cast<float>(row[offset + 0]) - tr;
+                const float dg = static_cast<float>(row[offset + 1]) - tg;
+                const float db = static_cast<float>(row[offset + 2]) - tb;
+                const float distanceSq = dr * dr + dg * dg + db * db;
+                if (distanceSq <= despillRadiusSq) {
+                    if (singleDominant) {
+                        const int dominant = keyOrder[0];
+                        const int otherA = keyOrder[1];
+                        const int otherB = keyOrder[2];
+                        const int otherMax = std::max(
+                            static_cast<int>(row[offset + otherA]),
+                            static_cast<int>(row[offset + otherB]));
+                        const int spill = static_cast<int>(row[offset + dominant])
+                                       - otherMax;
+                        if (spill > 0) {
+                            row[offset + dominant] = static_cast<uchar>(
+                                row[offset + dominant]
+                                - std::lround(spill * despillAmount));
+                        }
+                    } else {
+                        const int highA = keyOrder[0];
+                        const int highB = keyOrder[1];
+                        const int low = keyOrder[2];
+                        const int common = std::min(
+                            static_cast<int>(row[offset + highA]),
+                            static_cast<int>(row[offset + highB]))
+                            - static_cast<int>(row[offset + low]);
+                        if (common > 0) {
+                            const int removed = static_cast<int>(
+                                std::lround(common * despillAmount));
+                            row[offset + highA] = static_cast<uchar>(
+                                row[offset + highA] - removed);
+                            row[offset + highB] = static_cast<uchar>(
+                                row[offset + highB] - removed);
+                            // Para uma chave magenta, parte da cor tambem
+                            // contaminou o canal baixo. Repor metade evita
+                            // transformar um cinzento claro em cinzento
+                            // demasiado escuro.
+                            row[offset + low] = static_cast<uchar>(std::clamp(
+                                static_cast<int>(row[offset + low]) + removed / 2,
+                                0, 255));
+                        }
+                    }
+                }
+            }
+
+            row[offset + 3] = static_cast<uchar>(a);
+        }
+    }
+
     return result;
+}
+
+QImage ImagePostProcessor::applyGeometry(const QImage& input,
+                                        const ProcessingOptions& options)
+{
+    if (input.isNull()) return input;
+    QImage result = input;
+
+    // 1. Recorte em coordenadas normalizadas.
+    if (options.hasCrop
+        && options.cropRect.width() > 0.0
+        && options.cropRect.height() > 0.0) {
+        const QRectF norm = options.cropRect.normalized();
+        const int left = std::clamp(
+            static_cast<int>(std::floor(norm.x() * result.width())), 0,
+            result.width() - 1);
+        const int top = std::clamp(
+            static_cast<int>(std::floor(norm.y() * result.height())), 0,
+            result.height() - 1);
+        const int right = std::clamp(
+            static_cast<int>(std::ceil((norm.x() + norm.width()) * result.width())),
+            left + 1, result.width());
+        const int bottom = std::clamp(
+            static_cast<int>(std::ceil((norm.y() + norm.height()) * result.height())),
+            top + 1, result.height());
+        const QRect rect(left, top, right - left, bottom - top);
+        if (rect.isValid() && rect != result.rect()) result = result.copy(rect);
+    }
+
+    // 2. Rotacao (multiplos de 90 no sentido horario).
+    int rotation = ((options.rotationDegrees % 360) + 360) % 360;
+    if (rotation != 0 && rotation % 90 == 0) {
+        result = result.transformed(QTransform().rotate(rotation),
+                                    Qt::FastTransformation);
+    }
+
+    // 3. Redimensionamento.
+    const int targetW = options.resizeWidth;
+    const int targetH = options.resizeHeight;
+    if (targetW > 0 || targetH > 0) {
+        QSize target(targetW, targetH);
+        if (targetW > 0 && targetH == 0) {
+            target = QSize(targetW, std::max(1, static_cast<int>(std::lround(
+                             static_cast<double>(result.height()) * targetW
+                             / result.width()))));
+        } else if (targetH > 0 && targetW == 0) {
+            target = QSize(std::max(1, static_cast<int>(std::lround(
+                             static_cast<double>(result.width()) * targetH
+                             / result.height()))), targetH);
+        }
+        if (target.isValid() && target != result.size()) {
+            result = result.scaled(target, Qt::IgnoreAspectRatio,
+                                   Qt::SmoothTransformation);
+        }
+    }
+
+    return result;
+}
+
+bool ImagePostProcessor::saveImage(const QImage& image,
+                                   const QString& outputPath,
+                                   const ProcessingOptions& options,
+                                   const QString& sourcePath,
+                                   QString* error)
+{
+    auto fail = [&](const QString& message) {
+        if (error) *error = message;
+        return false;
+    };
+
+    if (image.isNull()) return fail(QStringLiteral("empty image"));
+    if (outputPath.isEmpty()) return fail(QStringLiteral("empty output path"));
+
+    QString format = options.outputFormat.trimmed().toLower();
+    if (format.isEmpty()) format = QFileInfo(outputPath).suffix().toLower();
+    if (format == QLatin1String("jpg")
+        || format == QLatin1String("jpeg")) {
+        format = QStringLiteral("jpeg");
+    } else if (format == QLatin1String("tif")) {
+        format = QStringLiteral("tiff");
+    }
+
+    QImage out = image;
+
+    // JPEG nao possui canal alfa. Compomos aqui (e nao apenas no
+    // chamador) para que todos os fluxos -- GUI, lote e CLI -- evitem a
+    // area transparente prehistoricamente preta.
+    if (format == QLatin1String("jpeg") && out.hasAlphaChannel()) {
+        const QColor background = options.backgroundColor.isValid()
+            ? options.backgroundColor : QColor(Qt::white);
+        out = compositeBackground(out, background);
+    }
+
+    QImageReader sourceReader;
+    QHash<QString, QString> sourceText;
+    QByteArray sourceBytes;
+    QByteArray sourceTiff;
+    if (options.preserveMetadata && !sourcePath.isEmpty()) {
+        sourceReader.setFileName(sourcePath);
+        // Os metadados textuais devem ser lidos antes da imagem: depois
+        // de read(), alguns handlers PNG tentam reler o ficheiro a partir
+        // do fim e emitem "Read Error" espúrio.
+        const QStringList textKeys = sourceReader.textKeys();
+        for (const QString& key : textKeys) {
+            const QString value = sourceReader.text(key);
+            if (!value.isEmpty()) sourceText.insert(key, value);
+        }
+
+        // So descodificamos a origem quando a imagem processada perdeu
+        // o perfil de cor. Numa exportacao normal o pipeline ja o
+        // transporta, evitando uma segunda decodificacao (importante em
+        // lotes paralelos com fotos de 12 MP).
+        if (!out.colorSpace().isValid()) {
+            const QImage sourceImage = sourceReader.read();
+            const QColorSpace sourceSpace = sourceImage.colorSpace();
+            if (sourceSpace.isValid()) out.setColorSpace(sourceSpace);
+        }
+
+        QFile sourceFile(sourcePath);
+        if (sourceFile.open(QIODevice::ReadOnly)) {
+            sourceBytes = sourceFile.readAll();
+            sourceFile.close();
+        }
+        // O EXIF e extraido do contentor da SOURCE, independentemente
+        // do formato de saida. Assim JPEG->PNG e PNG->JPEG preservam
+        // os metadados tecnicos.
+        if (sourceBytes.size() >= 2
+            && static_cast<quint8>(sourceBytes.at(0)) == 0xff
+            && static_cast<quint8>(sourceBytes.at(1)) == 0xd8) {
+            const QByteArray payload = extractJpegExif(sourceBytes);
+            if (payload.startsWith(QByteArray("Exif\0\0", 6)))
+                sourceTiff = payload.mid(6);
+        } else {
+            sourceTiff = extractPngExif(sourceBytes);
+        }
+    }
+
+    // JPEG e WebP nao transportam um perfil ICCarbitrario no writer do
+    // Qt. Convertemos para sRGB para que as cores nao dependam do visor.
+    // O PNG mantem o perfil ICC da imagem processada.
+    if ((format == QLatin1String("jpeg")
+         || format == QLatin1String("webp"))
+        && out.colorSpace().isValid()
+        && out.colorSpace() != QColorSpace::SRgb) {
+        out = out.convertedToColorSpace(QColorSpace::SRgb);
+    }
+
+    QImageWriter writer(outputPath, format.toUtf8());
+    if (format == QLatin1String("png")) {
+        if (options.pngCompression >= 0) {
+            writer.setCompression(std::clamp(options.pngCompression, 0, 9));
+        }
+    } else if (format == QLatin1String("jpeg")) {
+        writer.setQuality(std::clamp(options.jpegQuality, 0, 100));
+    } else if (format == QLatin1String("webp")) {
+        writer.setQuality(std::clamp(options.webpQuality, 0, 100));
+    }
+
+    // Metadados textuais (descricao, autor, copyright, etc.) sao
+    // copiados quando o writer suporta o tipo. O EXIF binario e tratado
+    // abaixo, depois da escrita, para JPEG e PNG.
+    if (options.preserveMetadata && !sourceText.isEmpty()) {
+        for (auto it = sourceText.constBegin();
+             it != sourceText.constEnd(); ++it) {
+            writer.setText(it.key(), it.value());
+        }
+    }
+
+    if (!writer.write(out)) return fail(writer.errorString());
+
+    if (options.preserveMetadata && !sourceTiff.isEmpty()) {
+        bool metadataWritten = true;
+        if (format == QLatin1String("jpeg")) {
+            metadataWritten = injectJpegExif(
+                outputPath, sourceTiff, out.width(), out.height());
+        } else if (format == QLatin1String("png")) {
+            metadataWritten = injectPngExif(
+                outputPath, sourceTiff, out.width(), out.height());
+        }
+        if (!metadataWritten) {
+            return fail(QStringLiteral(
+                "the image was written, but EXIF metadata could not be preserved"));
+        }
+    }
+    return true;
 }

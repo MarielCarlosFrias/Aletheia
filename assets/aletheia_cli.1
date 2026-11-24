@@ -68,12 +68,93 @@ Process
 .I N
 images in parallel (1 = sequential, the default). Useful with small
 models on multi-core machines.
+.TP
+.B \-\-quality " " N
+JPEG/WebP quality (1-100). Defaults to 90.
+.TP
+.B \-\-png-compression " " N
+PNG compression level (0-9; 0 means no compression). Defaults to 6.
+.TP
+.B \-\-threshold " " N
+Alpha threshold (0-255). Pixels with alpha below this value become
+fully transparent. Defaults to 30.
+.TP
+.B \-\-clean-noise
+Make pixels below the alpha threshold transparent.
+.TP
+.B \-\-refine-intensity " " N
+Edge refinement intensity (0-100). Defaults to 50.
+.TP
+.B \-\-sticker
+Add a sticker outline around the cutout.
+.TP
+.B \-\-sticker-width " " N
+Sticker outline width (1-50 px). Defaults to 6.
+.TP
+.B \-\-sticker-color " " color
+Sticker outline color (#RRGGBB). Defaults to #ffffff.
+.TP
+.B \-\-shadow
+Add a drop shadow.
+.TP
+.B \-\-shadow-blur " " N
+Shadow blur (0-80 px). Defaults to 10.
+.TP
+.B \-\-shadow-offset-x " " N
+Horizontal shadow offset (-100 to 100). Defaults to 4.
+.TP
+.B \-\-shadow-offset-y " " N
+Vertical shadow offset (-100 to 100). Defaults to 6.
+.TP
+.B \-\-shadow-opacity " " N
+Shadow opacity (0-100). Defaults to 50.
+.TP
+.B \-\-background " " color
+Solid output background (#RRGGBB).
+.TP
+.B \-\-resize " " size
+Final size: WIDTH or WIDTHxHEIGHT.
+.TP
+.B \-\-rotate " " N
+Final rotation (0, 90, 180 or 270 degrees). Defaults to 0.
+.TP
+.B \-\-crop " " spec
+Normalized crop: x,y,width,height (all between 0 and 1).
+.TP
+.B \-\-chroma-key " " color
+Color removal instead of AI (#RRGGBB).
+.TP
+.B \-\-chroma-tolerance " " N
+Chroma key tolerance (0-100). Defaults to 0.
+.TP
+.B \-\-chroma-contiguous
+Remove only background connected to the borders.
+.TP
+.B \-\-chroma-soft-edges
+Disable hard Pixel Art edges.
+.TP
+.B \-\-despill " " N
+Chroma key despill (0-100). Defaults to 0.
+.TP
+.B \-\-feather " " N
+Mask feather radius (0-5 px). Defaults to 0.
+.TP
+.B \-\-no-metadata
+Do not copy EXIF, GPS or other text metadata from the source.
 .SH EXAMPLES
 Process a folder with the default model:
 .PP
 .nf
 .RS
 aletheia_cli ~/Pictures/input ~/Pictures/output
+.RE
+.fi
+.PP
+Process a single image:
+.PP
+.nf
+.RS
+aletheia_cli photo.png -o photo_rembg.png
 .RE
 .fi
 .PP
@@ -90,6 +171,22 @@ Process four images in parallel:
 .nf
 .RS
 aletheia_cli ~/Pictures/input --output ~/Pictures/output --jobs 4
+.RE
+.fi
+.PP
+Use chroma key with despill:
+.PP
+.nf
+.RS
+aletheia_cli sprite.png --chroma-key '#00ff00' --despill 80 --feather 1
+.RE
+.fi
+.PP
+Resize and rotate:
+.PP
+.nf
+.RS
+aletheia_cli photo.png -o out.png --resize 1000x1000 --rotate 90
 .RE
 .fi
 .PP

@@ -26,6 +26,7 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -33,6 +34,7 @@
 #include <QSplitter>
 #include <QApplication>
 #include <QByteArray>
+#include <QBuffer>
 #include <QPixmap>
 #include <QSizePolicy>
 #include <QDir>
@@ -89,7 +91,8 @@ ProcessingOptions MainWindow::currentProcessingOptions() const
     options.cleanNoise = noiseCheckBox_->isChecked();
     options.alphaThreshold = noiseThresholdSpin_->value();
     options.refineEdges = refineCheckBox_->isChecked();
-    options.edgeRefinementIntensity = 0.5f;
+    options.edgeRefinementIntensity =
+        edgeRefinementSpin_->value() / 100.0f;
     options.backgroundColor = currentBackgroundColor();
 
     const int bgIdx = bgColorCombo_->currentIndex();
@@ -105,14 +108,25 @@ ProcessingOptions MainWindow::currentProcessingOptions() const
     }
 
     options.stickerOutline = stickerCheckBox_->isChecked();
-    options.stickerWidth = 6;
-    options.stickerColor = Qt::white;
+    options.stickerWidth = stickerWidthSpin_->value();
+    options.stickerColor = stickerColor_;
 
     options.dropShadow = shadowCheckBox_->isChecked();
-    options.shadowBlur = 10;
-    options.shadowOffsetX = 4;
-    options.shadowOffsetY = 6;
-    options.shadowOpacity = 0.5f;
+    options.shadowBlur = shadowBlurSpin_->value();
+    options.shadowOffsetX = shadowOffsetXSpin_->value();
+    options.shadowOffsetY = shadowOffsetYSpin_->value();
+    options.shadowOpacity = shadowOpacitySpin_->value() / 100.0f;
+
+    options.jpegQuality = exportQualitySpin_->value();
+    options.webpQuality = exportQualitySpin_->value();
+    options.pngCompression = pngCompressionSpin_->value();
+    options.preserveMetadata = preserveMetadataCheckBox_->isChecked();
+    options.resizeWidth = outputWidthSpin_->value();
+    options.resizeHeight = outputHeightSpin_->value();
+    options.rotationDegrees = rotationCombo_->currentData().toInt();
+
+    options.chromaDespill = chromaDespillSpin_->value() / 100.0f;
+    options.chromaFeather = chromaFeatherSpin_->value();
 
     return options;
 }
@@ -150,9 +164,16 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       brushRadiusSpin_(new QSpinBox),
       noiseThresholdSpin_(new QSpinBox),
       refineCheckBox_(new QCheckBox(TR("Refinar bordas", "Refine edges"))),
+      edgeRefinementSpin_(new QDoubleSpinBox),
       noiseCheckBox_(new QCheckBox(TR("Limpar ruído", "Clean noise"))),
       stickerCheckBox_(new QCheckBox(TR("Contorno (Sticker)", "Sticker outline"))),
+      stickerWidthSpin_(new QSpinBox),
+      stickerColorButton_(new QPushButton),
       shadowCheckBox_(new QCheckBox(TR("Sombra suave", "Drop shadow"))),
+      shadowBlurSpin_(new QSpinBox),
+      shadowOffsetXSpin_(new QSpinBox),
+      shadowOffsetYSpin_(new QSpinBox),
+      shadowOpacitySpin_(new QDoubleSpinBox),
       removalMethodCombo_(new QComboBox),
       aiRemovalWidget_(new QWidget),
       colorRemovalWidget_(new QWidget),
@@ -161,9 +182,18 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
       colorToleranceSpin_(new QSpinBox),
       colorContiguousCheckBox_(new QCheckBox(TR("Apenas conectado (Varinha)", "Connected only (Wand)"))),
       colorPixelArtCheckBox_(new QCheckBox(TR("Modo Pixel Art (bordas nítidas)", "Pixel Art mode (sharp edges)"))),
+      chromaDespillSpin_(new QDoubleSpinBox),
+      chromaFeatherSpin_(new QSpinBox),
       btnRemoveByColor_(new QPushButton(TR("Remover cor de fundo", "Remove background color"))),
       keyColor_(QColor(255, 0, 255)),
       saveFormatCombo_(new QComboBox),
+      exportQualitySpin_(new QSpinBox),
+      pngCompressionSpin_(new QSpinBox),
+      preserveMetadataCheckBox_(new QCheckBox(
+          TR("Preservar metadados (EXIF)", "Preserve metadata (EXIF)"))),
+      outputWidthSpin_(new QSpinBox),
+      outputHeightSpin_(new QSpinBox),
+      rotationCombo_(new QComboBox),
       progressBar_(new QProgressBar),
       logEdit_(new QPlainTextEdit),
       maskEditCanvas_(new MaskEditCanvas(this)),
@@ -222,6 +252,73 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     brushRadiusSpin_->setValue(10);
     brushRadiusSpin_->setSuffix(" px");
 
+    edgeRefinementSpin_->setRange(0, 100);
+    edgeRefinementSpin_->setSingleStep(5);
+    edgeRefinementSpin_->setValue(50);
+    edgeRefinementSpin_->setSuffix(" %");
+    edgeRefinementSpin_->setToolTip(TR(
+        "Intensidade do refinamento das bordas",
+        "Edge refinement intensity"));
+
+    stickerWidthSpin_->setRange(1, 50);
+    stickerWidthSpin_->setValue(6);
+    stickerWidthSpin_->setSuffix(" px");
+    stickerColorButton_->setObjectName("stickerColorButton");
+    stickerColorButton_->setCursor(Qt::PointingHandCursor);
+    stickerColorButton_->setToolTip(TR(
+        "Cor do contorno do sticker", "Sticker outline color"));
+
+    shadowBlurSpin_->setRange(0, 80);
+    shadowBlurSpin_->setValue(10);
+    shadowBlurSpin_->setSuffix(" px");
+    shadowOffsetXSpin_->setRange(-100, 100);
+    shadowOffsetXSpin_->setValue(4);
+    shadowOffsetXSpin_->setSuffix(" px");
+    shadowOffsetYSpin_->setRange(-100, 100);
+    shadowOffsetYSpin_->setValue(6);
+    shadowOffsetYSpin_->setSuffix(" px");
+    shadowOpacitySpin_->setRange(0, 100);
+    shadowOpacitySpin_->setSingleStep(5);
+    shadowOpacitySpin_->setValue(50);
+    shadowOpacitySpin_->setSuffix(" %");
+
+    exportQualitySpin_->setRange(1, 100);
+    exportQualitySpin_->setValue(90);
+    exportQualitySpin_->setSuffix(" %");
+    exportQualitySpin_->setToolTip(TR(
+        "Qualidade de JPEG e WebP", "JPEG and WebP quality"));
+    pngCompressionSpin_->setRange(0, 9);
+    pngCompressionSpin_->setValue(6);
+    pngCompressionSpin_->setToolTip(TR(
+        "Nível de compressão PNG (0 sem compressão, 9 máxima)",
+        "PNG compression level (0 none, 9 maximum)"));
+    preserveMetadataCheckBox_->setChecked(true);
+    preserveMetadataCheckBox_->setToolTip(TR(
+        "Copia EXIF, GPS e texto para JPEG e PNG",
+        "Copy EXIF, GPS and text metadata to JPEG and PNG"));
+
+    outputWidthSpin_->setRange(0, 20000);
+    outputHeightSpin_->setRange(0, 20000);
+    outputWidthSpin_->setSpecialValueText(TR("Original", "Original"));
+    outputHeightSpin_->setSpecialValueText(TR("Original", "Original"));
+    outputWidthSpin_->setSuffix(" px");
+    outputHeightSpin_->setSuffix(" px");
+    rotationCombo_->addItem(TR("0°", "0°"), 0);
+    rotationCombo_->addItem(TR("90°", "90°"), 90);
+    rotationCombo_->addItem(TR("180°", "180°"), 180);
+    rotationCombo_->addItem(TR("270°", "270°"), 270);
+
+    chromaDespillSpin_->setRange(0, 100);
+    chromaDespillSpin_->setSingleStep(5);
+    chromaDespillSpin_->setValue(0);
+    chromaDespillSpin_->setSuffix(" %");
+    chromaDespillSpin_->setToolTip(TR(
+        "Remove a cor de fundo das bordas semi-transparentes",
+        "Removes background color from semi-transparent edges"));
+    chromaFeatherSpin_->setRange(0, 5);
+    chromaFeatherSpin_->setValue(0);
+    chromaFeatherSpin_->setSuffix(" px");
+
     maskEditCanvas_->setMode(MaskEditCanvas::Restore);
     maskEditCanvas_->setBrushRadius(brushRadiusSpin_->value());
 
@@ -254,10 +351,24 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     btnAutoCrop_->setObjectName("autoCropButton");
     btnDragOut_->setObjectName("dragOutButton");
     stickerCheckBox_->setObjectName("stickerCheckBox");
+    stickerWidthSpin_->setObjectName("stickerWidth");
     shadowCheckBox_->setObjectName("shadowCheckBox");
+    shadowBlurSpin_->setObjectName("shadowBlur");
+    shadowOffsetXSpin_->setObjectName("shadowOffsetX");
+    shadowOffsetYSpin_->setObjectName("shadowOffsetY");
+    shadowOpacitySpin_->setObjectName("shadowOpacity");
     refineCheckBox_->setObjectName("refineEdges");
+    edgeRefinementSpin_->setObjectName("edgeRefinementIntensity");
     noiseCheckBox_->setObjectName("cleanNoise");
     noiseThresholdSpin_->setObjectName("noiseThreshold");
+    exportQualitySpin_->setObjectName("exportQuality");
+    pngCompressionSpin_->setObjectName("pngCompression");
+    preserveMetadataCheckBox_->setObjectName("preserveMetadata");
+    outputWidthSpin_->setObjectName("outputWidth");
+    outputHeightSpin_->setObjectName("outputHeight");
+    rotationCombo_->setObjectName("rotation");
+    chromaDespillSpin_->setObjectName("chromaDespill");
+    chromaFeatherSpin_->setObjectName("chromaFeather");
     brushModeCombo_->setObjectName("brushMode");
     brushRadiusSpin_->setObjectName("brushRadius");
     progressBar_->setObjectName("progressBar");
@@ -312,14 +423,21 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     headerLayout->addStretch();
     langCombo_ = new QComboBox;
     langCombo_->setObjectName("langCombo");
-    // Nomes de idioma sempre na propria lingua (pratica padrao).
-    langCombo_->addItem("\U0001F310 PT-BR", "pt");
-    langCombo_->addItem("\U0001F310 English", "en");
+    // Nomes de idioma sempre na propria lingua (pratica padrao). Um
+    // idioma externo so aparece quando existe um dicionario embutido ou
+    // instalado; PT/EN estao sempre disponiveis.
+    langCombo_->addItem("\U0001F310 " + I18n::nativeName(I18n::Lang::PtBr), "pt");
+    langCombo_->addItem("\U0001F310 " + I18n::nativeName(I18n::Lang::En), "en");
+    if (I18n::dictionaryAvailable(I18n::Lang::Es)) {
+        langCombo_->addItem(
+            "\U0001F310 " + I18n::nativeName(I18n::Lang::Es), "es");
+    }
     langCombo_->setToolTip(
         TR("Idioma (aplicado ao reiniciar o aplicativo)",
            "Language (applies after restarting the app)"));
-    langCombo_->setCurrentIndex(
-        I18n::lang() == I18n::Lang::En ? 1 : 0);
+    const int activeLanguage = langCombo_->findData(
+        I18n::code(I18n::lang()));
+    langCombo_->setCurrentIndex(activeLanguage >= 0 ? activeLanguage : 0);
     headerLayout->addWidget(langCombo_);
     btnThemeToggle_->setObjectName("themeToggle");
     btnThemeToggle_->setToolTip(TR("Alternar tema claro/escuro",
@@ -333,9 +451,9 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
 
     connect(langCombo_, QOverload<int>::of(
                 &QComboBox::currentIndexChanged),
-            this, [this](int idx) {
+            this, [this](int) {
         QSettings settings("aletheia", "aletheia");
-        settings.setValue("lang", idx == 1 ? "en" : "pt");
+        settings.setValue("lang", langCombo_->currentData().toString());
         QMessageBox::information(this, TR("Idioma", "Language"),
             TR("O idioma sera aplicado ao reiniciar o Aletheia.",
                "The language will be applied after restarting Aletheia."));
@@ -472,15 +590,30 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     ow.colorToleranceSpin = colorToleranceSpin_;
     ow.colorContiguousCheckBox = colorContiguousCheckBox_;
     ow.colorPixelArtCheckBox = colorPixelArtCheckBox_;
+    ow.chromaDespillSpin = chromaDespillSpin_;
+    ow.chromaFeatherSpin = chromaFeatherSpin_;
     ow.btnRemoveByColor = btnRemoveByColor_;
     ow.presetCombo = presetCombo_;
     ow.bgColorCombo = bgColorCombo_;
     ow.saveFormatCombo = saveFormatCombo_;
+    ow.exportQualitySpin = exportQualitySpin_;
+    ow.pngCompressionSpin = pngCompressionSpin_;
+    ow.preserveMetadataCheckBox = preserveMetadataCheckBox_;
+    ow.outputWidthSpin = outputWidthSpin_;
+    ow.outputHeightSpin = outputHeightSpin_;
+    ow.rotationCombo = rotationCombo_;
     ow.refineCheckBox = refineCheckBox_;
+    ow.edgeRefinementSpin = edgeRefinementSpin_;
     ow.noiseCheckBox = noiseCheckBox_;
     ow.noiseThresholdSpin = noiseThresholdSpin_;
     ow.stickerCheckBox = stickerCheckBox_;
+    ow.stickerWidthSpin = stickerWidthSpin_;
+    ow.stickerColorButton = stickerColorButton_;
     ow.shadowCheckBox = shadowCheckBox_;
+    ow.shadowBlurSpin = shadowBlurSpin_;
+    ow.shadowOffsetXSpin = shadowOffsetXSpin_;
+    ow.shadowOffsetYSpin = shadowOffsetYSpin_;
+    ow.shadowOpacitySpin = shadowOpacitySpin_;
     ow.brushModeCombo = brushModeCombo_;
     ow.brushRadiusSpin = brushRadiusSpin_;
     ow.btnUndo = btnUndo_;
@@ -631,8 +764,11 @@ MainWindow::MainWindow(QWidget* parent, const QString& modelPath)
     connect(shadowCheckBox_,   &QCheckBox::toggled, this, [this](bool) {
         if (presetCombo_->currentIndex() != 0) presetCombo_->setCurrentIndex(0);
     });
+    connect(stickerColorButton_, &QPushButton::clicked,
+            this, &MainWindow::pickStickerColor);
 
     updateKeyColorButton();
+    updateStickerColorButton();
     btnAutoDetectKeyColor_->setEnabled(false);
     btnRemoveByColor_->setEnabled(false);
     connect(removalMethodCombo_, QOverload<int>::of(
@@ -1260,7 +1396,6 @@ void MainWindow::saveResult() {
                 "Extension adjusted to the chosen format: ") + path);
     }
 
-    const QByteArray fmt = extension.toUpper().toUtf8();
     if (!QImageWriter::supportedImageFormats().contains(
             extension.toLatin1())) {
         QMessageBox::warning(this, TR("Aviso", "Warning"),
@@ -1275,6 +1410,7 @@ void MainWindow::saveResult() {
     }
 
     ProcessingOptions saveOptions = currentProcessingOptions();
+    saveOptions.outputFormat = extension;
     // Formatos sem canal alfa precisam de fundo solido, senao o Qt
     // compoe sobre preto e o resultado surpreende.
     const bool needSolidBg = currentBackgroundColor().isValid()
@@ -1284,12 +1420,11 @@ void MainWindow::saveResult() {
         saveOptions.backgroundColor = Qt::white;
     }
 
-    // O pós-processamento (sticker, sombra) pode demorar em fotos
-    // grandes; corre na thread de trabalho para nao congelar a UI.
-    // O ficheiro e escrito em onSaveProcessingFinished().
+    // O pós-processamento e a escrita (sticker, sombra, geometria,
+    // qualidade e metadados) correm na thread de trabalho para não
+    // congelar a interface com imagens grandes.
     pendingSavePath_ = path;
-    pendingSaveFormat_ = fmt;
-    pendingSaveOptions_ = saveOptions;
+    const QString sourcePath = currentImagePath_;
     setUiBusy(true);
     progressBar_->setRange(0, 0);
     progressBar_->setValue(0);
@@ -1300,8 +1435,14 @@ void MainWindow::saveResult() {
                        "Processing image for save..."));
     saveWatcher_.setFuture(QtConcurrent::run(
         [img = preview_->resultImage(), opts = saveOptions,
-         orig = preview_->originalImage()]() {
-            return ImagePostProcessor::apply(img, opts, orig);
+         orig = preview_->originalImage(), outPath = path,
+         source = sourcePath]() -> SaveOutcome {
+            const QImage processed =
+                ImagePostProcessor::apply(img, opts, orig);
+            QString error;
+            const bool success = ImagePostProcessor::saveImage(
+                processed, outPath, opts, source, &error);
+            return { success, error };
         }));
 }
 
@@ -1313,25 +1454,13 @@ void MainWindow::onSaveProcessingFinished()
     setUiBusy(false);
     btnSave_->setEnabled(true);
 
-    const QImage toSave = saveWatcher_.result();
+    const SaveOutcome outcome = saveWatcher_.result();
     const QString path = pendingSavePath_;
-    const QByteArray fmt = pendingSaveFormat_;
-    const ProcessingOptions saveOptions = pendingSaveOptions_;
-    const QString extension = QString::fromLatin1(fmt).toLower();
 
     QSettings settings("aletheia", "aletheia");
-    QImageWriter writer(path, fmt);
-    if (extension == "png" && saveOptions.pngCompression >= 0) {
-        writer.setQuality(-1); // PNG usa compressão, não quality
-        writer.setCompression(saveOptions.pngCompression);
-    } else if (extension == "jpg") {
-        writer.setQuality(saveOptions.jpegQuality);
-    } else if (extension == "webp") {
-        writer.setQuality(saveOptions.webpQuality);
-    }
-    if (!writer.write(toSave)) {
+    if (!outcome.success) {
         QMessageBox::critical(this, TR("Erro", "Error"),
-            TR("Não foi possível salvar:\n", "Could not save:\n") + path + "\n" + writer.errorString());
+            TR("Não foi possível salvar:\n", "Could not save:\n") + path + "\n" + outcome.error);
     } else {
         settings.setValue("output/lastSaveDir",
                           QFileInfo(path).absolutePath());
@@ -1406,6 +1535,25 @@ void MainWindow::onPostProcessFinished()
         logEdit_->appendPlainText(
             "[OK] " + TR("Resultado copiado para a area de transferencia.",
                          "Result copied to the clipboard."));
+    } else if (action == PendingAction::CopyTransparent) {
+        const QImage image = result.convertToFormat(QImage::Format_RGBA8888);
+        QByteArray pngData;
+        QBuffer buffer(&pngData);
+        buffer.open(QIODevice::WriteOnly);
+        QImageWriter writer(&buffer, "PNG");
+        if (!writer.write(image)) {
+            QMessageBox::warning(this, TR("Aviso", "Warning"),
+                TR("Falha ao codificar PNG para a área de transferência.",
+                   "Failed to encode PNG for clipboard."));
+        } else {
+            QMimeData* mime = new QMimeData;
+            mime->setData("image/png", pngData);
+            mime->setImageData(image);
+            QApplication::clipboard()->setMimeData(mime);
+            logEdit_->appendPlainText(
+                "[OK] " + TR("PNG transparente copiado para a área de transferência.",
+                             "Transparent PNG copied to clipboard."));
+        }
     } else if (action == PendingAction::DragOut) {
         const QString tempDir = QDir::tempPath();
         const QString baseName = currentImagePath_.isEmpty()
@@ -1440,36 +1588,31 @@ void MainWindow::copyTransparentResult()
             TR("Remova o fundo primeiro.", "Remove the background first."));
         return;
     }
-    // Use resultImage directly without applying background/blurring.
-    QImage img = preview_->resultImage().convertToFormat(QImage::Format_RGBA8888);
 
-    // Encode as PNG via QBuffer to guarantee PNG format.
-    QByteArray pngData;
-    QBuffer buffer(&pngData);
-    buffer.open(QIODevice::WriteOnly);
-    QImageWriter writer(&buffer, "PNG");
-    if (!writer.write(img)) {
-        QMessageBox::warning(this, TR("Aviso", "Warning"),
-            TR("Falha ao codificar PNG para a área de transferência.",
-               "Failed to encode PNG for clipboard."));
-        return;
-    }
-
-    QMimeData *mime = new QMimeData;
-    mime->setData("image/png", pngData);
-    mime->setImageData(img);
-    QApplication::clipboard()->setMimeData(mime);
-
-    logEdit_->appendPlainText(
-        "[OK] " + TR("PNG transparente copiado para a área de transferência.",
-                     "Transparent PNG copied to clipboard."));
+    // O mesmo pipeline de exportacao e usado, mas sem fundo: sticker,
+    // sombra, limpeza e geometria sao aplicados uma unica vez.
+    ProcessingOptions options = currentProcessingOptions();
+    options.backgroundStyle = ProcessingOptions::BgTransparent;
+    options.backgroundColor = QColor();
+    pendingAction_ = PendingAction::CopyTransparent;
+    pendingPostOptions_ = options;
+    setUiBusy(true);
+    progressBar_->setRange(0, 0);
+    progressBar_->setValue(0);
+    progressBar_->setVisible(true);
+    postProcessWatcher_.setFuture(QtConcurrent::run(
+        [img = preview_->resultImage(), opts = pendingPostOptions_,
+         orig = preview_->originalImage()]() {
+            return ImagePostProcessor::apply(img, opts, orig);
+        }));
 }
 
 void MainWindow::onSaveFormatChanged(int index)
 {
     // PNG e WebP guardam transparencia; JPEG funde sobre o fundo
-    // escolhido, por isso o rotulo da combo muda de contexto.
-    Q_UNUSED(index)
+    // escolhido. A qualidade aplica-se a JPEG/WebP e a compressao a PNG.
+    exportQualitySpin_->setEnabled(!isBusy_ && index != 0);
+    pngCompressionSpin_->setEnabled(!isBusy_ && index == 0);
 }
 
 void MainWindow::showUpdateBanner(const QString& version)
@@ -1536,16 +1679,30 @@ void MainWindow::setUiBusy(bool busy)
     presetCombo_->setEnabled(!busy);
     bgColorCombo_->setEnabled(!busy);
     refineCheckBox_->setEnabled(!busy);
+    edgeRefinementSpin_->setEnabled(!busy);
     noiseCheckBox_->setEnabled(!busy);
     noiseThresholdSpin_->setEnabled(!busy);
     stickerCheckBox_->setEnabled(!busy);
+    stickerWidthSpin_->setEnabled(!busy);
+    stickerColorButton_->setEnabled(!busy);
     shadowCheckBox_->setEnabled(!busy);
+    shadowBlurSpin_->setEnabled(!busy);
+    shadowOffsetXSpin_->setEnabled(!busy);
+    shadowOffsetYSpin_->setEnabled(!busy);
+    shadowOpacitySpin_->setEnabled(!busy);
+    exportQualitySpin_->setEnabled(!busy && saveFormatCombo_->currentIndex() != 0);
+    pngCompressionSpin_->setEnabled(!busy && saveFormatCombo_->currentIndex() == 0);
+    outputWidthSpin_->setEnabled(!busy);
+    outputHeightSpin_->setEnabled(!busy);
+    rotationCombo_->setEnabled(!busy);
     removalMethodCombo_->setEnabled(!busy);
     btnKeyColorSample_->setEnabled(!busy);
     btnAutoDetectKeyColor_->setEnabled(!busy && !preview_->originalImage().isNull());
     colorToleranceSpin_->setEnabled(!busy);
     colorContiguousCheckBox_->setEnabled(!busy);
     colorPixelArtCheckBox_->setEnabled(!busy);
+    chromaDespillSpin_->setEnabled(!busy);
+    chromaFeatherSpin_->setEnabled(!busy);
     btnRemoveByColor_->setEnabled(!busy && !preview_->originalImage().isNull());
     brushModeCombo_->setEnabled(!busy);
     brushRadiusSpin_->setEnabled(!busy);
@@ -1660,10 +1817,29 @@ void MainWindow::restoreSettings()
         settings.value("options/cleanNoise", false).toBool());
     noiseThresholdSpin_->setValue(
         settings.value("options/noiseThreshold", kAlphaThreshold).toInt());
+    edgeRefinementSpin_->setValue(
+        settings.value("options/edgeRefinementIntensity", 50).toInt());
     stickerCheckBox_->setChecked(
         settings.value("options/sticker", false).toBool());
+    stickerWidthSpin_->setValue(
+        settings.value("options/stickerWidth", 6).toInt());
+    {
+        const QVariant stickerColor = settings.value("options/stickerColor");
+        if (stickerColor.isValid()) {
+            const QColor color = stickerColor.value<QColor>();
+            if (color.isValid()) stickerColor_ = color;
+        }
+    }
     shadowCheckBox_->setChecked(
         settings.value("options/shadow", false).toBool());
+    shadowBlurSpin_->setValue(
+        settings.value("options/shadowBlur", 10).toInt());
+    shadowOffsetXSpin_->setValue(
+        settings.value("options/shadowOffsetX", 4).toInt());
+    shadowOffsetYSpin_->setValue(
+        settings.value("options/shadowOffsetY", 6).toInt());
+    shadowOpacitySpin_->setValue(
+        settings.value("options/shadowOpacity", 50).toInt());
     {
         const QSignalBlocker blocker(removalMethodCombo_);
         const int rm = settings.value("removal/method", 0).toInt();
@@ -1682,6 +1858,10 @@ void MainWindow::restoreSettings()
         settings.value("color/contiguous", false).toBool());
     colorPixelArtCheckBox_->setChecked(
         settings.value("color/pixelArt", true).toBool());
+    chromaDespillSpin_->setValue(
+        settings.value("color/despill", 0).toInt());
+    chromaFeatherSpin_->setValue(
+        settings.value("color/feather", 0).toInt());
     {
         const QVariant keyVar = settings.value("color/keyColor");
         if (keyVar.isValid()) {
@@ -1694,6 +1874,22 @@ void MainWindow::restoreSettings()
         const int fmt = settings.value("output/saveFormat", 0).toInt();
         if (fmt >= 0 && fmt < saveFormatCombo_->count())
             saveFormatCombo_->setCurrentIndex(fmt);
+    }
+    exportQualitySpin_->setValue(
+        settings.value("output/quality", 90).toInt());
+    pngCompressionSpin_->setValue(
+        settings.value("output/pngCompression", 6).toInt());
+    preserveMetadataCheckBox_->setChecked(
+        settings.value("output/preserveMetadata", true).toBool());
+    outputWidthSpin_->setValue(
+        settings.value("output/width", 0).toInt());
+    outputHeightSpin_->setValue(
+        settings.value("output/height", 0).toInt());
+    {
+        const QSignalBlocker blocker(rotationCombo_);
+        const int rotation = settings.value("output/rotation", 0).toInt();
+        const int index = rotationCombo_->findData(rotation);
+        if (index >= 0) rotationCombo_->setCurrentIndex(index);
     }
 
     // Lista de ficheiros recentes (menu Ficheiro > Abrir recente).
@@ -1737,18 +1933,33 @@ void MainWindow::saveSettings()
                       noiseCheckBox_->isChecked());
     settings.setValue("options/noiseThreshold",
                       noiseThresholdSpin_->value());
+    settings.setValue("options/edgeRefinementIntensity",
+                      edgeRefinementSpin_->value());
     settings.setValue("options/sticker", stickerCheckBox_->isChecked());
+    settings.setValue("options/stickerWidth", stickerWidthSpin_->value());
+    settings.setValue("options/stickerColor", stickerColor_);
     settings.setValue("options/shadow", shadowCheckBox_->isChecked());
+    settings.setValue("options/shadowBlur", shadowBlurSpin_->value());
+    settings.setValue("options/shadowOffsetX", shadowOffsetXSpin_->value());
+    settings.setValue("options/shadowOffsetY", shadowOffsetYSpin_->value());
+    settings.setValue("options/shadowOpacity", shadowOpacitySpin_->value());
     settings.setValue("removal/method", removalMethodCombo_->currentIndex());
     settings.setValue("output/preset", presetCombo_->currentIndex());
     settings.setValue("color/tolerance", colorToleranceSpin_->value());
     settings.setValue("color/contiguous", colorContiguousCheckBox_->isChecked());
     settings.setValue("color/pixelArt", colorPixelArtCheckBox_->isChecked());
+    settings.setValue("color/despill", chromaDespillSpin_->value());
+    settings.setValue("color/feather", chromaFeatherSpin_->value());
     settings.setValue("color/keyColor", keyColor_);
     settings.setValue("output/bgIndex", bgColorCombo_->currentIndex());
     settings.setValue("output/customColor", customBgColor_);
     settings.setValue("output/saveFormat",
                      saveFormatCombo_->currentIndex());
+    settings.setValue("output/quality", exportQualitySpin_->value());
+    settings.setValue("output/pngCompression", pngCompressionSpin_->value());
+    settings.setValue("output/width", outputWidthSpin_->value());
+    settings.setValue("output/height", outputHeightSpin_->value());
+    settings.setValue("output/rotation", rotationCombo_->currentData().toInt());
     if (!modelPathEdit_->text().isEmpty())
         settings.setValue("model/path", modelPathEdit_->text());
 }
@@ -1978,6 +2189,23 @@ void MainWindow::presetChanged(int index)
     const QSignalBlocker bRefine(refineCheckBox_);
     const QSignalBlocker bNoise(noiseCheckBox_);
     const QSignalBlocker bNoiseThresh(noiseThresholdSpin_);
+    const QSignalBlocker bEdge(edgeRefinementSpin_);
+    const QSignalBlocker bStickerWidth(stickerWidthSpin_);
+    const QSignalBlocker bShadowBlur(shadowBlurSpin_);
+    const QSignalBlocker bShadowX(shadowOffsetXSpin_);
+    const QSignalBlocker bShadowY(shadowOffsetYSpin_);
+    const QSignalBlocker bShadowOpacity(shadowOpacitySpin_);
+
+    // Valores base partilhados pelos presets. As opcoes especificas de
+    // cada preset sao ajustadas no switch abaixo.
+    edgeRefinementSpin_->setValue(50);
+    stickerWidthSpin_->setValue(6);
+    stickerColor_ = Qt::white;
+    updateStickerColorButton();
+    shadowBlurSpin_->setValue(10);
+    shadowOffsetXSpin_->setValue(4);
+    shadowOffsetYSpin_->setValue(6);
+    shadowOpacitySpin_->setValue(50);
 
     switch (index) {
     case 1: // Padrão (Transparente)
@@ -2075,6 +2303,34 @@ void MainWindow::updateKeyColorButton()
         .arg(hex, textColor));
 }
 
+void MainWindow::updateStickerColorButton()
+{
+    const QString hex = stickerColor_.name(QColor::HexRgb).toUpper();
+    const double luminance =
+        (0.299 * stickerColor_.red()
+         + 0.587 * stickerColor_.green()
+         + 0.114 * stickerColor_.blue()) / 255.0;
+    const QString textColor = luminance > 0.5 ? "#000000" : "#FFFFFF";
+
+    stickerColorButton_->setText(hex);
+    stickerColorButton_->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; font-weight: bold; "
+        "border: 1px solid #555555; border-radius: 4px; padding: 4px; "
+        "min-height: 24px; }")
+        .arg(hex, textColor));
+}
+
+void MainWindow::pickStickerColor()
+{
+    const QColor color = QColorDialog::getColor(
+        stickerColor_, this,
+        TR("Escolher cor do contorno", "Choose outline color"));
+    if (color.isValid()) {
+        stickerColor_ = color;
+        updateStickerColorButton();
+    }
+}
+
 void MainWindow::removalMethodChanged(int index)
 {
     aiRemovalWidget_->setVisible(index == 0);
@@ -2113,6 +2369,8 @@ void MainWindow::removeByColor()
     const int tol = colorToleranceSpin_->value();
     const bool contiguous = colorContiguousCheckBox_->isChecked();
     const bool pixelArt = colorPixelArtCheckBox_->isChecked();
+    const float despill = chromaDespillSpin_->value() / 100.0f;
+    const int feather = chromaFeatherSpin_->value();
 
     // A inundacao de regiao percorre a imagem toda: numa foto de 6 MP
     // demora ~1,8 s, o que congelava a janela. Agora corre na thread
@@ -2123,9 +2381,9 @@ void MainWindow::removeByColor()
     progressBar_->setVisible(true);
     colorWatcher_.setFuture(QtConcurrent::run(
         [img = preview_->originalImage(), color = keyColor_,
-         tol, contiguous, pixelArt]() {
+         tol, contiguous, pixelArt, despill, feather]() {
             return ImagePostProcessor::removeByColor(
-                img, color, tol, contiguous, pixelArt);
+                img, color, tol, contiguous, pixelArt, despill, feather);
         }));
 }
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(aletheia VERSION 1.3.1)
+project(aletheia VERSION 1.4.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -190,6 +190,7 @@ add_library(aletheia_core STATIC
     src/core/batchplan.h
     src/core/batchprocessor.cpp
     src/core/batchprocessor.h
+    src/core/i18n.cpp
     src/core/i18n.h
     src/core/imagepostprocessor.cpp
     src/core/imagepostprocessor.h
@@ -238,12 +239,27 @@ add_library(aletheia_gui STATIC
 target_link_libraries(aletheia_gui PUBLIC
     aletheia_core Qt6::Widgets)
 
+# Dicionarios JSON de traducao (ver src/core/i18n.cpp). Ficam embutidos
+# nos binarios para nao depender de ficheiros ao lado do executavel; o
+# GLOB e reavaliado automaticamente quando um dicionario e adicionado.
+function(aletheia_add_translation_resources target)
+    file(GLOB aletheia_i18n_files CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/translations/*.json")
+    if(aletheia_i18n_files)
+        qt_add_resources(${target} "aletheia_i18n_${target}"
+            PREFIX "/i18n"
+            BASE "${CMAKE_SOURCE_DIR}/translations"
+            FILES ${aletheia_i18n_files})
+    endif()
+endfunction()
+
 add_executable(aletheia
     src/gui/main.cpp)
 target_link_libraries(aletheia PRIVATE aletheia_gui)
 qt_add_resources(aletheia "aletheia_icon"
     PREFIX "/"
     FILES assets/aletheia.svg)
+aletheia_add_translation_resources(aletheia)
 target_compile_definitions(aletheia PRIVATE
     ALETHEIA_VERSION="${PROJECT_VERSION}")
 if(APPLE)
@@ -271,6 +287,7 @@ endif()
 add_executable(aletheia_cli
     src/cli/main_cli.cpp)
 target_link_libraries(aletheia_cli PRIVATE aletheia_core)
+aletheia_add_translation_resources(aletheia_cli)
 if(APPLE)
     # O CLI e instalado dentro do .app para partilhar os frameworks
     # Qt/ONNX e o modelo incluido em Contents/Resources.
@@ -307,6 +324,15 @@ if(WIN32)
 endif()
 
 enable_testing()
+add_executable(test_i18n
+    tests/test_i18n.cpp)
+target_link_libraries(test_i18n PRIVATE aletheia_core)
+aletheia_set_onnx_rpath(test_i18n)
+# O teste valida o dicionario ES: precisa do recurso embutido.
+aletheia_add_translation_resources(test_i18n)
+add_test(NAME i18n_test COMMAND test_i18n)
+add_test(NAME i18n_test_es COMMAND test_i18n es)
+
 add_executable(test_postprocessing
     tests/test_postprocessing.cpp)
 target_link_libraries(test_postprocessing PRIVATE aletheia_core)
@@ -581,3 +607,10 @@ set(CPACK_SOURCE_IGNORE_FILES
     "/.*\\.onnx$;/.*\\.bak$;/bg_remover_cli$;/aletheia$;/aletheia_cli$")
 
 include(CPack)
+
+# Pacotes adicionais (NSIS, flatpak, snap, AUR, Homebrew, assinatura de
+# artefactos). Opcional: se o modulo ainda nao existir, o build normal
+# nao e afetado.
+if(EXISTS "${CMAKE_SOURCE_DIR}/cmake/Packaging.cmake")
+    include("${CMAKE_SOURCE_DIR}/cmake/Packaging.cmake")
+endif()
