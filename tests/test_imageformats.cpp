@@ -21,7 +21,7 @@ int main(int argc, char* argv[])
     // PNG e sempre suportado pelo Qt base.
     {
         QString hint;
-        if (!ImagePostProcessor::isFormatSupported("/tmp/foto.png", &hint)) {
+        if (!ImagePostProcessor::isFormatSupported("foto.png", &hint)) {
             std::printf("FALHOU: PNG deveria ser suportado\n");
             return 1;
         }

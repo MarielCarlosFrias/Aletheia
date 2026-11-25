@@ -1,11 +1,21 @@
 #include <QImage>
 #include <QImageWriter>
+#include <QTemporaryDir>
 #include <iostream>
 
 #include "imagepostprocessor.h"
 
 int main()
 {
+    // Diretorio temporario isolado (portatil entre Linux/Windows/macOS):
+    // os testes de saveImage nao podem usar /tmp/ hardcoded.
+    QTemporaryDir tmpDir;
+    if (!tmpDir.isValid()) {
+        std::cerr << "FAIL: nao foi possivel criar diretorio temporario"
+                  << std::endl;
+        return 1;
+    }
+    const QString tmp = tmpDir.path();
     QImage alphaImage(3, 3, QImage::Format_RGBA8888);
     alphaImage.fill(qRgba(10, 20, 30, 20));
     alphaImage.setPixel(1, 1, qRgba(10, 20, 30, 255));
@@ -242,7 +252,7 @@ int main()
         ProcessingOptions jpegOpts;
         jpegOpts.outputFormat = "jpg";
         jpegOpts.jpegQuality = 80;
-        QString tmpJpeg = QStringLiteral("/tmp/test_postprocessing_jpeg.jpg");
+        QString tmpJpeg = tmp + QStringLiteral("/test_jpeg.jpg");
         QString jpegError;
         if (!ImagePostProcessor::saveImage(jpegSrc, tmpJpeg, jpegOpts,
                                            QString(), &jpegError)) {
@@ -272,7 +282,7 @@ int main()
         ProcessingOptions webpOpts;
         webpOpts.outputFormat = "webp";
         webpOpts.webpQuality = 50;
-        QString tmpWebp = QStringLiteral("/tmp/test_postprocessing.webp");
+        QString tmpWebp = tmp + QStringLiteral("/test.webp");
         QString webpError;
         if (!ImagePostProcessor::saveImage(jpegSrc, tmpWebp, webpOpts,
                                            QString(), &webpError)) {
@@ -286,7 +296,7 @@ int main()
     ProcessingOptions pngOpts;
     pngOpts.outputFormat = "png";
     pngOpts.pngCompression = 9;
-    QString tmpPng = QStringLiteral("/tmp/test_postprocessing.png");
+    QString tmpPng = tmp + QStringLiteral("/test.png");
     QString pngError;
     if (!ImagePostProcessor::saveImage(jpegSrc, tmpPng, pngOpts,
                                        QString(), &pngError)) {
