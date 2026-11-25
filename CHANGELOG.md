@@ -4,6 +4,45 @@ Todas as alterações relevantes são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Unreleased]
+
+### Corrigido
+
+- **CI (Windows)**: `--archives qtbase,qttools` (vírgula) fazia o `aqt` procurar um
+  arquivo literal chamado `qtbase,qttools`, instalar 0 pacotes e sair com exit 0 —
+  o CMake falhava depois com `Qt6Config.cmake not found`. Corrigido para
+  `--archives qtbase qttools` (separado por espaço), com verificação de
+  `Qt6Config.cmake` após a instalação e `-DCMAKE_PREFIX_PATH` explícito no Configure.
+- **README**: removidas as badges de CI/Release que mostravam "failing"; a badge de
+  CI foi readicionada depois de o CI voltar a passar (todas as plataformas verdes).
+
+## [1.4.3] - 2026-11-25
+
+### Alterado
+
+- Versão 1.4.3 no `CMakeLists.txt`, alinhada com a tag `v1.4.3`.
+
+## [1.4.2] - 2026-11-25
+
+### Corrigido
+
+- **Testes no CI do Windows**: `test_gui` usava `/tmp` hardcoded; passa a usar
+  `QTemporaryDir` (caminho gravável e isolado por run no Windows).
+
+### Alterado
+
+- Versão 1.4.2 no `CMakeLists.txt`, alinhada com a tag `v1.4.2`.
+
+## [1.4.1] - 2026-11-25
+
+### Corrigido
+
+- **Auditoria geral**: painel lateral com largura mínima correta, live preview dos
+  efeitos (sticker/sombra/refinamento atualizam o preview sem reexecutar a inferência),
+  race conditions em workers de lote e escrita atómica de ficheiros de saída.
+- Efeitos de sticker/sombra/refinamento agora são refletidos no preview imediatamente
+  após a remoção de fundo.
+
 ## [1.4.0] - 2026-11-24
 
 ### Adicionado

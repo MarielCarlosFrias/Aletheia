@@ -1,5 +1,9 @@
 # Analise do projeto Aletheia (bg-remover)
 
+> **Nota**: documento histórico da auditoria feita na v1.2.3 (2026-11-10).
+> O projeto já vai na v1.4.3 — para o histórico atual de versões ver
+> [CHANGELOG.md](CHANGELOG.md).
+
 Versao 1.2.3. Aplicacao desktop (Qt6) + CLI para remocao de fundo de imagens localmente, usando ONNX Runtime com modelos U2-Net/ISNet.
 
 ## Modulos principais

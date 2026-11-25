@@ -1,10 +1,17 @@
+<p align="center">
+  <img src="assets/aletheia.svg" width="140" alt="Aletheia logo"/>
+</p>
+
 # Aletheia
 
+[![CI](https://github.com/MarielCarlosFrias/Aletheia/actions/workflows/ci.yml/badge.svg)](https://github.com/MarielCarlosFrias/Aletheia/actions/workflows/ci.yml)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599c.svg)](https://isocpp.org/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-1.19-005ced.svg)](https://onnxruntime.ai/)
 [![English](https://img.shields.io/badge/Language-English-blue.svg)](README.md)
 [![Português](https://img.shields.io/badge/Idioma-Portugu%C3%AAs-green.svg)](README.pt.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Qt 6](https://img.shields.io/badge/Qt-6-41cd52.svg)](https://www.qt.io/)
-[![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](#pre-built-downloads-no-compile-needed)
+[![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](#downloads)
 
 **Fast, private, 100% offline background removal for images.**  
 Named after the ancient Greek concept **Aletheia** (*Ἀλήθεια* — the disclosure, un-veiling, or revealing of what was hidden by removing what obscures it).
@@ -35,11 +42,13 @@ No cloud uploads, no API subscriptions, no telemetry. Your photos and data never
 
 ---
 
+<a id="downloads"></a>
+
 ## 📥 Pre-Built Downloads (No Compile Needed)
 
 Ready-to-use binaries are automatically generated and tested for every release on GitHub:
 
-👉 [**Download the Latest Release (v1.4.0)**](https://github.com/MarielCarlosFrias/aletheia/releases/latest)
+👉 [**Download the Latest Release (v1.4.3)**](https://github.com/MarielCarlosFrias/Aletheia/releases/latest)
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |
@@ -123,9 +132,9 @@ O programa está disponível em **Português do Brasil**, **English** e **Españ
 
 The app is available in **Brazilian Portuguese**, **English** and **Spanish**. The language is detected automatically from the system locale and can be changed in the app header (applied on restart). The environment variable `ALETHEIA_LANG=pt|en|es` can also be used to force a language.
 
-Novos idiomas podem ser adicionados editando os dicionários JSON em `translations/aletheia_<código>.json` (veja `translations/README.md`).
+Novos idiomas podem ser adicionados em `translations/`: dicionários JSON embutidos para idiomas extra (ex.: `aletheia_es.json`) e ficheiros `.ts` gerados para o Qt Linguist (veja `translations/README.md`).
 
-New languages can be added by editing JSON dictionaries in `translations/aletheia_<code>.json` (see `translations/README.md`).
+New languages can be added in `translations/`: embedded JSON dictionaries for extra languages (e.g. `aletheia_es.json`) and generated `.ts` files for Qt Linguist (see `translations/README.md`).
 
 ## 🔧 Environment Variables
 
@@ -218,7 +227,7 @@ Full CLI options:
 ### Linux (Ubuntu / Debian)
 ```bash
 sudo apt update && sudo apt install -y build-essential cmake qt6-base-dev qt6-image-formats-plugins
-git clone https://github.com/MarielCarlosFrias/aletheia.git
+git clone https://github.com/MarielCarlosFrias/Aletheia.git
 cd aletheia
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON
 cmake --build build -j 2
@@ -314,3 +323,7 @@ ctest --test-dir build --output-on-failure
   - ONNX distribution models by [rembg](https://github.com/danielgatis/rembg).
   - [BRIA RMBG-1.4 / 2.0](https://bria.ai/) by BRIA AI.
   - [BiRefNet](https://github.com/ZhengPeng7/BiRefNet) by Peng Zheng et al.
+
+---
+
+⭐ **Found Aletheia useful?** Consider giving it a [star on GitHub](https://github.com/MarielCarlosFrias/Aletheia) — it helps others discover the project!
