@@ -178,11 +178,21 @@ jobs:
       - name: Download Qt 6.7.3 (aqt)
         shell: pwsh
         run: |
-          # Baixa apenas qtbase + qttools (modulos necessarios para build),
-          # sem examples/testes para reduzir o download e evitar cancelamento.
+          # Baixa apenas qtbase + qttools: Core/Gui/Widgets/Network/Concurrent
+          # e windeployqt.exe estao todos no arquivo qtbase; qttools cobre
+          # LinguistTools se ALETHEIA_BUILD_TRANSLATIONS=ON.
+          # ATENCAO: --archives recebe valores separados por ESPACO.
+          # "--archives qtbase,qttools" (virgula) nao separa nada: o aqt
+          # procura um arquivo chamado "qtbase,qttools", instala 0 pacotes
+          # e sai com exit 0 — o CMake falha depois com "Qt6Config.cmake
+          # not found".
           python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 -O Qt `
-            --archives qtbase,qttools
+            --archives qtbase qttools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $qtDir = "$PWD\Qt\6.7.3\msvc2019_64"
+          if (-not (Test-Path "$qtDir\lib\cmake\Qt6\Qt6Config.cmake")) {
+            throw "aqt nao instalou Qt6 em $qtDir (ver log do aqt acima)"
+          }
           Add-Content $env:GITHUB_PATH "$qtDir\bin"
           "CMAKE_PREFIX_PATH=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Append
 
@@ -217,7 +227,10 @@ jobs:
           if (-not $ok) { Write-Host 'AVISO: modelo nao obtido; inference_test sera desativado' }
 
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DINSTALLED=ON
+        # -DCMAKE_PREFIX_PATH explicito no comando: o log do passo mostra o
+        # caminho real do Qt em vez de falhar com "Qt6Config.cmake not found".
+        shell: pwsh
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DINSTALLED=ON -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH"
 
       - name: Build and test
         run: |
