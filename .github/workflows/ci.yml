@@ -178,13 +178,10 @@ jobs:
       - name: Download Qt 6.7.3 (aqt)
         shell: pwsh
         run: |
-          # Baixa apenas os modulos necessarios (Core/Gui/Widgets/Network/Concurrent
-          # para o build, qttools para qmake/lrelease), sem examples/tests para
-          # reduzir o download e evitar cancelamentos por timeout.
+          # Baixa apenas qtbase + qttools (modulos necessarios para build),
+          # sem examples/testes para reduzir o download e evitar cancelamento.
           python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 -O Qt `
-            --modules qtbase qttools `
-            --archives qtbase qttools `
-            --no-examples --no-tests
+            --archives qtbase,qttools
           $qtDir = "$PWD\Qt\6.7.3\msvc2019_64"
           Add-Content $env:GITHUB_PATH "$qtDir\bin"
           "CMAKE_PREFIX_PATH=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Append
