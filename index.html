@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Aletheia — 100% offline AI background removal (Qt 6 + ONNX Runtime)</title>
+<meta name="description" content="Aletheia removes image backgrounds locally with AI models (U²-Net, BRIA RMBG, BiRefNet) in a native C++17/Qt 6 app. No cloud, no subscriptions, no telemetry. Windows, macOS and Linux."/>
+<link rel="icon" href="logo.svg" type="image/svg+xml"/>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --card:#1c2330; --border:#2d333b;
+    --text:#e6edf3; --muted:#9da7b3; --accent:#7c5cff; --accent2:#41cd52;
+    --btn:#238636;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       line-height:1.6}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{text-align:center;padding:64px 20px 40px;
+         background:radial-gradient(900px 400px at 50% -80px, rgba(124,92,255,.35), transparent 70%)}
+  header img{width:96px;height:96px}
+  h1{font-size:44px;margin:12px 0 4px;letter-spacing:.5px}
+  .tagline{color:var(--muted);font-size:19px;max-width:640px;margin:0 auto}
+  .lang{margin:14px 0}
+  .lang button{background:var(--bg2);color:var(--text);border:1px solid var(--border);
+               border-radius:6px;padding:4px 12px;cursor:pointer;margin:0 3px}
+  .lang button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .cta{margin:26px 0 10px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-block;padding:12px 22px;border-radius:8px;font-weight:600;border:1px solid var(--border)}
+  .btn.primary{background:var(--btn);border-color:var(--btn);color:#fff}
+  .btn.primary:hover{background:#2ea043;text-decoration:none}
+  .btn.ghost{background:var(--bg2);color:var(--text)}
+  .btn.ghost:hover{border-color:var(--accent);text-decoration:none}
+  .dl{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}
+  .dl a{font-size:13px;padding:6px 12px;border-radius:6px;background:var(--card);border:1px solid var(--border);color:var(--text)}
+  .dl a:hover{border-color:var(--accent2);text-decoration:none}
+  nav{max-width:960px;margin:18px auto 0;display:flex;gap:18px;justify-content:center;flex-wrap:wrap;color:var(--muted);font-size:14px}
+  nav a{color:var(--muted)} nav a:hover{color:var(--text)}
+  section{max-width:960px;margin:0 auto;padding:36px 20px}
+  h2{font-size:26px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .card b{color:var(--accent2)}
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .shots img{width:100%;border-radius:10px;border:1px solid var(--border)}
+  pre{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;overflow-x:auto;font-size:13.5px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .privacy{background:linear-gradient(90deg,rgba(65,205,82,.12),rgba(124,92,255,.12));
+           border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
+  footer{border-top:1px solid var(--border);color:var(--muted);text-align:center;
+         padding:24px;font-size:14px}
+</style>
+</head>
+<body>
+
+<header>
+  <img src="logo.svg" alt="Aletheia logo"/>
+  <h1>Aletheia</h1>
+  <p class="tagline" data-en="Fast, private, 100% offline background removal for images."
+     data-pt="Remoção de fundo de imagens rápida, privada e 100% offline."></p>
+  <p class="tagline" style="font-size:15px"
+     data-en="Native C++17 + Qt 6 desktop app with ONNX Runtime AI models (U²-Net, BRIA RMBG, BiRefNet) and chroma-key / pixel-art mode. No cloud uploads, no API keys, no telemetry — your photos never leave your device."
+     data-pt="Aplicação desktop nativa em C++17 + Qt 6 com modelos de IA ONNX Runtime (U²-Net, BRIA RMBG, BiRefNet) e modo chroma key / pixel art. Sem uploads para a cloud, sem chaves de API, sem telemetria — as tuas fotos nunca saem do teu dispositivo."></p>
+  <div class="lang">
+    <button id="btn-en" class="active" onclick="setLang('en')">🇬🇧 EN</button>
+    <button id="btn-pt" onclick="setLang('pt')">🇵🇹 PT</button>
+  </div>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/MarielCarlosFrias/Aletheia/releases/latest"
+       data-en="⬇ Download v1.4.3 (free, MIT)" data-pt="⬇ Baixar v1.4.3 (grátis, MIT)"></a>
+    <a class="btn ghost" href="https://github.com/MarielCarlosFrias/Aletheia"
+       data-en="★ Star on GitHub" data-pt="★ Dar estrela no GitHub"></a>
+  </div>
+  <div class="dl">
+    <a href="https://github.com/MarielCarlosFrias/Aletheia/releases/download/v1.4.3/aletheia_1.4.3_win64.zip">🪟 Windows (zip)</a>
+    <a href="https://github.com/MarielCarlosFrias/Aletheia/releases/download/v1.4.3/aletheia_1.4.3_macos_universal2.zip">🍎 macOS (universal2)</a>
+    <a href="https://github.com/MarielCarlosFrias/Aletheia/releases/download/v1.4.3/aletheia_1.4.3_amd64.AppImage">🐧 Linux (AppImage)</a>
+    <a href="https://github.com/MarielCarlosFrias/Aletheia/releases/download/v1.4.3/aletheia_1.4.3_amd64.deb">📦 Debian/Ubuntu (.deb)</a>
+    <a href="https://github.com/MarielCarlosFrias/Aletheia/releases/download/v1.4.3/SHA256SUMS">🔐 SHA256SUMS</a>
+  </div>
+  <nav>
+    <a href="#features" data-en="Features" data-pt="Funcionalidades">Features</a>
+    <a href="#shots" data-en="Screenshots" data-pt="Capturas de ecrã">Screenshots</a>
+    <a href="#cli" data-en="CLI" data-pt="Linha de comandos">CLI</a>
+    <a href="#build" data-en="Build from source" data-pt="Compilar do código">Build from source</a>
+    <a href="https://github.com/MarielCarlosFrias/Aletheia">GitHub</a>
+    <a href="https://github.com/MarielCarlosFrias/Aletheia/releases">Releases</a>
+    <a href="https://github.com/MarielCarlosFrias/Aletheia/issues">Issues</a>
+  </nav>
+</header>
+
+<section id="features">
+  <h2 data-en="✨ Why Aletheia?" data-pt="✨ Porquê o Aletheia?"></h2>
+  <div class="grid">
+    <div class="card" data-en="🔒 <b>100% private &amp; local</b> — all inference runs on your CPU/GPU. Nothing is uploaded anywhere."
+         data-pt="🔒 <b>100% privado e local</b> — toda a inferência corre no teu CPU/GPU. Nada é enviado para lado nenhum."></div>
+    <div class="card" data-en="🤖 <b>One-click model catalog</b> — U²-Netp, U²-Net, BRIA RMBG 1.4/2.0, BiRefNet, ISNet with SHA256 verification."
+         data-pt="🤖 <b>Catálogo de modelos com um clique</b> — U²-Netp, U²-Net, BRIA RMBG 1.4/2.0, BiRefNet, ISNet com verificação SHA256."></div>
+    <div class="card" data-en="🎨 <b>Chroma key &amp; pixel art mode</b> — exact color removal with tolerance and contiguous flood-fill, perfect for sprites and green screen."
+         data-pt="🎨 <b>Chroma key e modo pixel art</b> — remoção de cor exata com tolerância e flood-fill contíguo, ideal para sprites e ecrã verde."></div>
+    <div class="card" data-en="✂️ <b>Finishing tools</b> — auto-crop, sticker outline, drop shadow, edge refinement; live preview without re-running inference."
+         data-pt="✂️ <b>Ferramentas de finition</b> — recorte automático, contorno de sticker, sombra projetada, refinamento de bordas; pré-visualização em direto sem reexecutar a inferência."></div>
+    <div class="card" data-en="🖌️ <b>Manual mask refinement</b> — brush with restore/erase modes and multi-level undo for fine details."
+         data-pt="🖌️ <b>Refinamento manual da máscara</b> — pincel com modos restaurar/apagar e desfazer multinível para detalhes finos."></div>
+    <div class="card" data-en="📁 <b>Batch processing</b> — whole folders via GUI or CLI with parallel workers and collision-free output names."
+         data-pt="📁 <b>Processamento em lote</b> — pastas inteiras via GUI ou CLI com workers paralelos e nomes de saída sem colisões."></div>
+    <div class="card" data-en="⌨️ <b>Full CLI</b> — headless servers, scripts and automation (<code>aletheia_cli</code>)."
+         data-pt="⌨️ <b>CLI completa</b> — servidores headless, scripts e automação (<code>aletheia_cli</code>)."></div>
+    <div class="card" data-en="🌓 <b>Dark &amp; light themes</b>, clipboard paste, drag-and-drop, PT/EN/ES interface."
+         data-pt="🌓 <b>Temas escuro e claro</b>, colar da área de transferência, arrastar e largar, interface PT/EN/ES."></div>
+  </div>
+</section>
+
+<section class="privacy">
+  <b data-en="🔐 Privacy first:" data-pt="🔐 Privacidade primeiro:"></b>
+  <span data-en="no accounts, no analytics, no update servers phoning home (optional, can be disabled). Open source under MIT — audit the code yourself."
+        data-pt="sem contas, sem analytics, sem servidores de atualização a telefonar para casa (opcional, pode ser desativado). Código aberto sob MIT — audita o código tu mesmo."></span>
+</section>
+
+<section id="shots">
+  <h2 data-en="🖼️ Screenshots" data-pt="🖼️ Capturas de ecrã"></h2>
+  <div class="shots">
+    <img src="img/aletheia-editor.png" alt="Editor" loading="lazy"/>
+    <img src="img/aletheia-models.png" alt="Model manager" loading="lazy"/>
+    <img src="img/aletheia-batch.png" alt="Batch processing" loading="lazy"/>
+    <img src="img/aletheia-help.png" alt="Help tab" loading="lazy"/>
+  </div>
+</section>
+
+<section id="cli">
+  <h2 data-en="💻 Command line" data-pt="💻 Linha de comandos"></h2>
+  <pre><code># batch a whole folder
+aletheia_cli /path/to/input -o /path/to/output
+
+# single image, specific model, webp output
+aletheia_cli photo.png -o photo_rembg.webp -m model.onnx -f webp
+
+# 4 images in parallel
+aletheia_cli /path/to/input -o /path/to/output -j 4
+
+# chroma key with despill + feather (pixel art / green screen)
+aletheia_cli sprite.png --chroma-key '#00ff00' --despill 80 --feather 1
+
+aletheia_cli --help</code></pre>
+</section>
+
+<section id="build">
+  <h2 data-en="🔨 Build from source" data-pt="🔨 Compilar a partir do código"></h2>
+  <pre><code>git clone https://github.com/MarielCarlosFrias/Aletheia.git
+cd Aletheia
+sudo apt install -y build-essential cmake qt6-base-dev   # Debian/Ubuntu
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBG_REMOVER_FETCH_ONNX_RUNTIME=ON
+cmake --build build -j
+./build/aletheia</code></pre>
+  <p data-en="Windows (VS 2022) and macOS (universal2) instructions in the README."
+     data-pt="Instruções para Windows (VS 2022) e macOS (universal2) no README."></p>
+</section>
+
+<footer>
+  <p data-en="MIT License · Built with Qt 6, ONNX Runtime and C++17 · Models: U²-Net, rembg, BRIA RMBG, BiRefNet"
+     data-pt="Licença MIT · Feito com Qt 6, ONNX Runtime e C++17 · Modelos: U²-Net, rembg, BRIA RMBG, BiRefNet"></p>
+  <p><a href="https://github.com/MarielCarlosFrias/Aletheia">github.com/MarielCarlosFrias/Aletheia</a></p>
+</footer>
+
+<script>
+function setLang(l){
+  document.documentElement.lang = l;
+  document.querySelectorAll('[data-en]').forEach(function(el){
+    el.innerHTML = el.getAttribute('data-' + l);
+  });
+  document.getElementById('btn-en').classList.toggle('active', l==='en');
+  document.getElementById('btn-pt').classList.toggle('active', l==='pt');
+}
+</script>
+</body>
+</html>
