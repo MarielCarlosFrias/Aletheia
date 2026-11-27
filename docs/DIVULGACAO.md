@@ -3,6 +3,60 @@
 Textos prontos a copiar/colar para divulgar o Aletheia. Personaliza à vontade.
 Versão atual: **v1.4.3** (2026-11-25). CI verde em Linux, macOS e Windows.
 
+## 🟢 Modo simples — SEM tokens, SEM código (só cliques + copiar texto)
+
+Não precisas de saber criar tokens nem programar. Faz isto:
+
+### 1️⃣ Ligar a landing page (2 min)
+1. Abre https://github.com/MarielCarlosFrias/Aletheia/settings/pages
+2. Em **Source** escolhe **Deploy from a branch**
+3. **Branch:** `gh-pages` · **Folder:** `/ (root)` → clica **Save**
+4. Espera 1–2 minutos. A página fica disponível em:
+   **https://marielcarlosfrias.github.io/Aletheia/**
+
+### 2️⃣ Adicionar "topics" ao repositório (1 min)
+1. Na página principal do repo, clica na ⚙️ ao lado de **About** (coluna da direita)
+2. No campo **Topics** cola isto (separado por espaços):
+   `qt6 qt onnxruntime background-removal image-processing cpp privacy offline-first rembg pixel-art desktop-app`
+3. **Save changes**
+
+### 3️⃣ Ativar Discussions e publicar o anúncio de lançamento (3 min)
+1. Abre https://github.com/MarielCarlosFrias/Aletheia/settings → desce até **Features** → mete ✅ em **Discussions** → **Save**
+2. Vai a https://github.com/MarielCarlosFrias/Aletheia/discussions → **New discussion** → categoria **Announcements**
+3. **Título:** `🚀 Aletheia v1.4.3 — 100% offline AI background remover (Qt 6 + ONNX Runtime)`
+4. **Corpo:** copia o texto da secção [📋 Anúncio pronto a colar](#-anúncio-pronto-a-colar-discussions) abaixo
+5. **Start discussion**
+
+### 4️⃣ Publicar nas redes sociais (copiar/colar, 1 post por comunidade)
+Usa os textos prontos das secções mais abaixo deste ficheiro (Hacker News, Reddit, X, Mastodon, LinkedIn, Dev.to, Product Hunt). Em cada um, diz que és o autor do projeto ("I'm the developer…") — é regra e boa prática.
+
+---
+
+### 📋 Anúncio pronto a colar (Discussions)
+
+```
+🚀 Aletheia v1.4.3 is out!
+
+Aletheia is a 100% offline, open-source (MIT) desktop app that removes image backgrounds
+locally with AI — native C++17 + Qt 6 with ONNX Runtime (U²-Net, BRIA RMBG 1.4/2.0,
+BiRefNet, ISNet, all SHA256-verified).
+
+- 🔒 No cloud, no accounts, no telemetry — your photos never leave your device
+- 🤖 One-click model catalog with SHA256 integrity verification
+- 🎨 Chroma key / pixel-art mode (exact color, tolerance, contiguous flood-fill)
+- ✂️ Sticker outline, drop shadow, auto-crop, edge refinement + live preview
+- 🖌️ Manual mask brush with undo/redo
+- 📁 Batch processing (GUI + aletheia_cli) with parallel workers
+- 🪟🍎🐧 Pre-built binaries: Windows zip, macOS universal2, Linux AppImage/.deb
+
+👉 Download: https://github.com/MarielCarlosFrias/Aletheia/releases/latest
+👉 Landing page: https://marielcarlosfrias.github.io/Aletheia/
+
+CI is green on Linux, macOS and Windows. Feedback, issues and PRs very welcome! ⭐
+```
+
+---
+
 ## 🔗 Links para usar em todo o lado
 
 | O quê | URL |
